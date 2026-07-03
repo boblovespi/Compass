@@ -13,9 +13,13 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.item.CompassItem;
 import net.minecraft.world.item.Items;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+
 public class CompassClient implements ClientModInitializer
 {
 	private static final ResourceLocation compassPointer = Compass.id("textures/hud/compass_pointer.png");
+	private static final DateTimeFormatter timeFormat = DateTimeFormatter.ofPattern("h:mm a");
 
 	@Override
 	public void onInitializeClient()
@@ -40,11 +44,20 @@ public class CompassClient implements ClientModInitializer
 		var center = start + halfWidth;
 		var gradientLength = Math.min(totalWidth / 10, 20);
 		// graphics.enableScissor(start, 14, start + totalWidth, 16);
+		var time = LocalDateTime.now();
+		var timeString = time.format(timeFormat);
+		var posStr = String.format("%.0f (%.0f) %.0f", pos.x, pos.y, pos.z);
+		var posWidth = font.width(posStr);
+		var minPosWidth = Math.max(60, posWidth);
 
 		// top bg
 		graphics.fill(start + gradientLength, 3, start + totalWidth - gradientLength, 14, 0x40707070);
 		fillGradientHorizontal(graphics, start, 3, start + gradientLength, 14, 0x00707070, 0x40707070);
 		fillGradientHorizontal(graphics, start + totalWidth - gradientLength, 3, start + totalWidth, 14, 0x40707070, 0x00707070);
+
+		graphics.fill(center - minPosWidth, 16, center + 60, 25, 0x40707070);
+		fillGradientHorizontal(graphics, center - minPosWidth - gradientLength, 16, center - minPosWidth, 25, 0x00707070, 0x40707070);
+		fillGradientHorizontal(graphics, center + 60, 16, center + 60 + gradientLength, 25, 0x40707070, 0x00707070);
 
 		// top markers
 		var nearest15 = ((int) dir) / 15 * 15;
@@ -77,26 +90,27 @@ public class CompassClient implements ClientModInitializer
 				var distance = pos.distanceTo(targetPosCenter);
 				var targetDir = Mth.wrapDegrees(Math.toDegrees(Mth.atan2(pos.x - targetPosCenter.x, targetPosCenter.z - pos.z))) + 180;
 				var x = (int) (Mth.wrapDegrees(targetDir - dir) / 90f * totalWidth);
+				var y = 28;
 				if (-x >= halfWidth - gradientLength)
 				{
 					var str = String.format("< %.0fm", distance);
-					drawCenteredStr(graphics, font, str, start + gradientLength, 21, 0xAAFF00, true);
+					drawCenteredStr(graphics, font, str, start + gradientLength, y, 0xAAFF00, true);
 				}
 				else if (x >= halfWidth - gradientLength)
 				{
 					var str = String.format("%.0fm >", distance);
-					drawCenteredStr(graphics, font, str, start + totalWidth - gradientLength, 21, 0xAAFF00, true);
+					drawCenteredStr(graphics, font, str, start + totalWidth - gradientLength, y, 0xAAFF00, true);
 				}
 				else
 				{
 					var str = String.format("%.0fm", distance);
-					drawCenteredStr(graphics, font, str, center + x, 21, 0xAAFF00, true);
+					drawCenteredStr(graphics, font, str, center + x, y, 0xAAFF00, true);
 				}
 				if (x <= halfWidth && x >= -halfWidth)
 				{
 					var alpha = halfWidth - Math.abs(x) > gradientLength ? 0xFF : (halfWidth - Math.abs(x)) * 0xFF / gradientLength;
 					alpha <<= 24;
-					graphics.fillGradient(center + x - 1, 8, center + x + 1, 20, 0x00AAFF00, 0xAAFF00 | alpha);
+					graphics.fillGradient(center + x - 1, 8, center + x + 1, y - 1, 0x00AAFF00, 0xAAFF00 | alpha);
 				}
 			}
 		}
@@ -108,8 +122,11 @@ public class CompassClient implements ClientModInitializer
 		fillGradientHorizontal(graphics, start + totalWidth - gradientLength, 14, start + totalWidth, 16, 0xFFDDDDDD, 0x00DDDDDD);
 		graphics.blit(compassPointer, center - 8, 14, 16, 6, 0, 0, 16, 6, 16, 16);
 
-		graphics.drawString(font, String.format("%.0f %.0f (%.0f)", pos.x, pos.z, pos.y), 10, 10, 0xFFFFFF, false);
-		graphics.drawString(font, String.format("%.0f", dir), 50, 50, 0xFFFFFF, false);
+		// coords, time
+		graphics.drawString(font, timeString, center + 8, 17, 0xDDDDDD, false);
+		graphics.drawString(font, posStr, center - posWidth - 8, 17, 0xDDDDDD, false);
+
+		// graphics.drawString(font, String.format("%.0f", dir), 50, 50, 0xFFFFFF, false);
 	}
 
 	private void fillGradientHorizontal(GuiGraphics graphics, int x1, int y1, int x2, int y2, int color1, int color2)
