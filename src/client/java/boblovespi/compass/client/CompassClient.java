@@ -58,7 +58,7 @@ public class CompassClient implements ClientModInitializer
 				messageStr = messageStr.substring(waypointIdx).strip();
 				if (!messageStr.contains(" "))
 				{
-					var components = messageStr.split("-");
+					var components = messageStr.split(",");
 					System.out.println(Arrays.toString(components));
 					if (components.length != 7)
 						return;
