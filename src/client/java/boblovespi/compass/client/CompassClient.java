@@ -1,30 +1,111 @@
 package boblovespi.compass.client;
 
 import boblovespi.compass.Compass;
+import com.mojang.authlib.GameProfile;
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.renderer.RenderType;
+import net.minecraft.core.Vec3i;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.network.chat.ChatType;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.PlayerChatMessage;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.FastColor;
 import net.minecraft.util.Mth;
 import net.minecraft.world.item.CompassItem;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.*;
 
 public class CompassClient implements ClientModInitializer
 {
 	private static final ResourceLocation compassPointer = Compass.id("textures/hud/compass_pointer.png");
 	private static final DateTimeFormatter timeFormat = DateTimeFormatter.ofPattern("h:mm a");
+	private Map<String, Waypoint> waypoints = new HashMap<>();
+	private Set<String> whitelistedNames = new HashSet<>();
+	private boolean enableWhitelist = true;
+	private String targetedWaypoint = "compass";
 
 	@Override
 	public void onInitializeClient()
 	{
 		HudRenderCallback.EVENT.register(this::drawHudElements);
+		ClientReceiveMessageEvents.CHAT.register(this::onChat);
+	}
+
+	private void onChat(Component message, @Nullable PlayerChatMessage signedMessage, @Nullable GameProfile sender, ChatType.Bound params, Instant receptionTimestamp)
+	{
+		var myName = Minecraft.getInstance().getUser().getName();
+		var sentFrom = sender == null ? null : sender.getName();
+		if (!enableWhitelist || (myName.equals(sentFrom) || whitelistedNames.contains(sentFrom)))
+		{
+			// System.out.println(message.toString());
+			var messageStr = message.getString();
+			var waypointIdx = messageStr.indexOf("waypoint");
+			if (waypointIdx != -1)
+			{
+				messageStr = messageStr.substring(waypointIdx).strip();
+				if (!messageStr.contains(" "))
+				{
+					var components = messageStr.split("-");
+					System.out.println(Arrays.toString(components));
+					if (components.length != 7)
+						return;
+					if (!components[0].equals("waypoint"))
+						return;
+					var name = components[1];
+					var x = 0;
+					try
+					{
+						x = Integer.parseInt(components[2]);
+					}
+					catch (Exception e)
+					{
+						return;
+					}
+					var y = 0;
+					try
+					{
+						y = Integer.parseInt(components[3]);
+					}
+					catch (Exception e)
+					{
+						return;
+					}
+					var z = 0;
+					try
+					{
+						z = Integer.parseInt(components[4]);
+					}
+					catch (Exception e)
+					{
+						return;
+					}
+					var level = components[5];
+					var color = 0;
+					try
+					{
+						color = Integer.decode(components[6]);
+					}
+					catch (Exception e)
+					{
+						return;
+					}
+					waypoints.put(name, new Waypoint(ResourceKey.create(Registries.DIMENSION, ResourceLocation.tryParse(level)), Vec3.atCenterOf(new Vec3i(x, y, z)), color));
+				}
+			}
+		}
 	}
 
 	private void drawHudElements(GuiGraphics graphics, float delta)
@@ -79,6 +160,7 @@ public class CompassClient implements ClientModInitializer
 		}
 
 		// compass
+		var addedCompass = false;
 		for (var item : player.getInventory().items)
 		{
 			if (item.is(Items.COMPASS))
@@ -86,34 +168,38 @@ public class CompassClient implements ClientModInitializer
 				var targetPos = CompassItem.isLodestoneCompass(item) ? CompassItem.getLodestonePosition(item.getTag()) : CompassItem.getSpawnPosition(player.level());
 				if (targetPos == null)
 					continue;
-				var targetPosCenter = targetPos.pos().getCenter();
-				var distance = pos.distanceTo(targetPosCenter);
-				var targetDir = Mth.wrapDegrees(Math.toDegrees(Mth.atan2(pos.x - targetPosCenter.x, targetPosCenter.z - pos.z))) + 180;
-				var x = (int) (Mth.wrapDegrees(targetDir - dir) / 90f * totalWidth);
-				var y = 28;
-				if (-x >= halfWidth - gradientLength)
-				{
-					var str = String.format("< %.0fm", distance);
-					drawCenteredStr(graphics, font, str, start + gradientLength, y, 0xAAFF00, true);
-				}
-				else if (x >= halfWidth - gradientLength)
-				{
-					var str = String.format("%.0fm >", distance);
-					drawCenteredStr(graphics, font, str, start + totalWidth - gradientLength, y, 0xAAFF00, true);
-				}
-				else
-				{
-					var str = String.format("%.0fm", distance);
-					drawCenteredStr(graphics, font, str, center + x, y, 0xAAFF00, true);
-				}
-				if (x <= halfWidth && x >= -halfWidth)
-				{
-					var alpha = halfWidth - Math.abs(x) > gradientLength ? 0xFF : (halfWidth - Math.abs(x)) * 0xFF / gradientLength;
-					alpha <<= 24;
-					graphics.fillGradient(center + x - 1, 8, center + x + 1, y - 1, 0x00AAFF00, 0xAAFF00 | alpha);
-				}
+				waypoints.put("compass", new Waypoint(targetPos.dimension(), targetPos.pos().getCenter(), 0xAAFF00));
+				addedCompass = true;
+				break;
 			}
 		}
+		if (!addedCompass)
+			waypoints.remove("compass");
+
+		// waypoints
+		waypoints.forEach((name, waypoint) -> {
+			if (!player.level().dimension().equals(waypoint.level()))
+				return;
+			var targetDir = Mth.wrapDegrees(Math.toDegrees(Mth.atan2(pos.x - waypoint.pos().x, waypoint.pos().z - pos.z))) + 180;
+			var x = (int) (Mth.wrapDegrees(targetDir - dir) / 90f * totalWidth);
+			var y = 28;
+			if (name.equals(targetedWaypoint))
+			{
+				var distance = pos.distanceTo(waypoint.pos());
+				if (-x >= halfWidth - gradientLength)
+					drawCenteredStr(graphics, font, String.format("< %.0fm", distance), start + gradientLength, y, waypoint.color(), true);
+				else if (x >= halfWidth - gradientLength)
+					drawCenteredStr(graphics, font, String.format("%.0fm >", distance), start + totalWidth - gradientLength, y, waypoint.color(), true);
+				else
+					drawCenteredStr(graphics, font, String.format("%.0fm", distance), center + x, y, waypoint.color(), true);
+			}
+			if (x <= halfWidth && x >= -halfWidth)
+			{
+				var alpha = halfWidth - Math.abs(x) > gradientLength ? 0xFF : (halfWidth - Math.abs(x)) * 0xFF / gradientLength;
+				alpha <<= 24;
+				graphics.fillGradient(center + x - 1, 8, center + x + 1, y - 1, waypoint.color(), waypoint.color() | alpha);
+			}
+		});
 
 		// line
 		graphics.fill(start + gradientLength, 14, center - 4, 16, 0xFFDDDDDD);
