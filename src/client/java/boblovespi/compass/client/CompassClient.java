@@ -562,7 +562,7 @@ public class CompassClient implements ClientModInitializer
 			{
 				var alpha = halfWidth - Math.abs(x) > gradientLength ? 0xFF : (halfWidth - Math.abs(x)) * 0xFF / gradientLength;
 				alpha <<= 24;
-				graphics.fillGradient(center + x - 1, 8, center + x + 1, y - 1, waypoint.color(), waypoint.color() | alpha);
+				graphics.fillGradient(center + x - 1, 6, center + x + 1, y - 1, waypoint.color(), waypoint.color() | alpha);
 			}
 		});
 
