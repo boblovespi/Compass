@@ -3,5 +3,14 @@
 	"commands.bob-compass.waypoints.clear": "Cleared waypoints.",
 	"commands.bob-compass.waypoints.list.header": "Waypoints:",
 	"commands.bob-compass.waypoints.add": "Added waypoint %s.",
-	"commands.bob-compass.waypoints.list.entry": "%s: %s %s %s in %s (%s)"
+	"commands.bob-compass.waypoints.list.entry": "%s: %s %s %s in %s (%s)",
+	"commands.bob-compass.whitelist.clear": "Cleared whitelist.",
+	"commands.bob-compass.whitelist.list.header": "Whitelisted players:",
+	"commands.bob-compass.whitelist.enable": "Enabled whitelist.",
+	"commands.bob-compass.whitelist.disable": "Disabled whitelist.",
+	"commands.bob-compass.waypoints.remove": "Removed waypoint %s.",
+	"commands.bob-compass.whitelist.remove": "Removed %s from whitelist.",
+	"commands.bob-compass.whitelist.list.disabled": "Whitelist is disabled.",
+	"commands.bob-compass.whitelist.list.empty": "Whitelist is empty.",
+	"commands.bob-compass.whitelist.add": "Added %s to whitelist."
 }

@@ -28,9 +28,7 @@ import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
 import net.minecraft.commands.arguments.coordinates.Coordinates;
 import net.minecraft.core.Vec3i;
 import net.minecraft.core.registries.Registries;
-import net.minecraft.network.chat.ChatType;
-import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.PlayerChatMessage;
+import net.minecraft.network.chat.*;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.FastColor;
@@ -41,6 +39,8 @@ import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import org.lwjgl.glfw.GLFW;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -72,11 +72,14 @@ public class CompassClient implements ClientModInitializer
 		ClientTickEvents.END_CLIENT_TICK.register(this::onEndTick);
 		ClientPlayConnectionEvents.JOIN.register(this::onJoinNewWorld);
 		ClientPlayConnectionEvents.DISCONNECT.register(this::onDisconnectWorld);
+		reloadWhitelist();
 	}
 
 	private void registerCommands(CommandDispatcher<FabricClientCommandSource> dispatcher, CommandBuildContext registryAccess)
 	{
-		var unknownName = new DynamicCommandExceptionType(n -> new LiteralMessage("Unknown waypoint '" + n + "'"));
+		var unknownWaypoint = new DynamicCommandExceptionType(n -> new LiteralMessage("Unknown waypoint '" + n + "'"));
+		var unknownPlayer = new DynamicCommandExceptionType(n -> new LiteralMessage("Unknown player '" + n + "'"));
+		var existingPlayer = new DynamicCommandExceptionType(n -> new LiteralMessage("Player '" + n + "' is already whitelisted"));
 		dispatcher.register(literal("compass")
 									.then(literal("waypoints")
 												  .then(literal("clear").executes(c ->
@@ -91,10 +94,17 @@ public class CompassClient implements ClientModInitializer
 															  waypointManager.forEach((n, w) -> c.getSource()
 																								 .sendFeedback(
 																										 Component.translatable("commands.bob-compass.waypoints.list.entry", n,
-																												 String.format("%.0f", w.pos().x),
-																												 String.format("%.0f", w.pos().y),
-																												 String.format("%.0f", w.pos().z), w.level().location(),
-																												 String.format("#%06X", w.color())).withColor(w.color())));
+																														  String.format("%.0f", w.pos().x), String.format("%.0f", w.pos().y),
+																														  String.format("%.0f", w.pos().z), w.level().location(),
+																														  String.format("#%06X", w.color()))
+																												  .withStyle(Style.EMPTY.withClickEvent(
+																																		  new ClickEvent(ClickEvent.Action.COPY_TO_CLIPBOARD,
+																																				  w.formatted(n)))
+																																		.withHoverEvent(new HoverEvent(
+																																				HoverEvent.Action.SHOW_TEXT,
+																																				Component.literal(w.formatted(n))
+																																						 .withColor(w.color()))))
+																												  .withColor(w.color())));
 															  return Command.SINGLE_SUCCESS;
 														  })
 													   )
@@ -175,14 +185,213 @@ public class CompassClient implements ClientModInitializer
 																			var name = c.getArgument("name", String.class);
 																			var waypoint = waypointManager.getWaypoint(name);
 																			if (waypoint == null)
-																				throw unknownName.create(name);
+																				throw unknownWaypoint.create(name);
 																			c.getSource().getPlayer().connection.sendChat(waypoint.formatted(name));
 																			return Command.SINGLE_SUCCESS;
 																		})
 																	 )
 													   )
+												  .then(literal("remove").then(argument("name", StringArgumentType.word()).suggests((c, b) ->
+														  {
+															  waypointManager.streamNames()
+																			 .filter(s -> !s.startsWith("."))
+																			 .filter(s -> s.toLowerCase().startsWith(b.getRemainingLowerCase()))
+																			 .forEach(b::suggest);
+															  return b.buildFuture();
+														  }).executes(c ->
+														  {
+															  var name = c.getArgument("name", String.class);
+															  var waypoint = waypointManager.getWaypoint(name);
+															  if (waypoint == null)
+																  throw unknownPlayer.create(name);
+															  c.getSource()
+															   .sendFeedback(Component.translatable("commands.bob-compass.waypoints.remove",
+																	   Component.literal(name).withColor(waypoint.color())));
+															  waypointManager.removeWaypointAndSave(name);
+															  return Command.SINGLE_SUCCESS;
+														  })
+																			  ))
+												  .executes(c ->
+												  {
+													  c.getSource().sendFeedback(Component.translatable("commands.bob-compass.waypoints.list.header"));
+													  waypointManager.forEach((n, w) -> c.getSource()
+																						 .sendFeedback(
+																								 Component.translatable("commands.bob-compass.waypoints.list.entry", n,
+																												  String.format("%.0f", w.pos().x), String.format("%.0f", w.pos().y),
+																												  String.format("%.0f", w.pos().z), w.level().location(),
+																												  String.format("#%06X", w.color()))
+																										  .withStyle(Style.EMPTY.withClickEvent(
+																																  new ClickEvent(ClickEvent.Action.COPY_TO_CLIPBOARD,
+																																		  w.formatted(n)))
+																																.withHoverEvent(new HoverEvent(
+																																		HoverEvent.Action.SHOW_TEXT,
+																																		Component.literal(w.formatted(n))
+																																				 .withColor(w.color()))))
+																										  .withColor(w.color())));
+													  return Command.SINGLE_SUCCESS;
+												  })
+										 )
+									.then(literal("whitelist")
+												  .then(literal("clear").executes(c ->
+												  {
+													  c.getSource().sendFeedback(Component.translatable("commands.bob-compass.whitelist.clear"));
+													  whitelistedNames.clear();
+													  saveWhitelist();
+													  return Command.SINGLE_SUCCESS;
+												  }))
+												  .then(literal("list").executes(c ->
+												  {
+													  if (!enableWhitelist)
+														  c.getSource().sendFeedback(Component.translatable("commands.bob-compass.whitelist.list.disabled"));
+													  if (whitelistedNames.isEmpty())
+													  {
+														  c.getSource().sendFeedback(Component.translatable("commands.bob-compass.whitelist.list.empty"));
+														  return Command.SINGLE_SUCCESS;
+													  }
+													  c.getSource().sendFeedback(Component.translatable("commands.bob-compass.whitelist.list.header"));
+													  whitelistedNames.forEach(n -> c.getSource().sendFeedback(Component.literal(n)));
+													  return Command.SINGLE_SUCCESS;
+												  }))
+												  .then(literal("enable").executes(c ->
+												  {
+													  c.getSource().sendFeedback(Component.translatable("commands.bob-compass.whitelist.enable"));
+													  enableWhitelist = true;
+													  saveWhitelist();
+													  return Command.SINGLE_SUCCESS;
+												  }))
+												  .then(literal("disable").executes(c ->
+												  {
+													  c.getSource().sendFeedback(Component.translatable("commands.bob-compass.whitelist.disable"));
+													  enableWhitelist = false;
+													  saveWhitelist();
+													  return Command.SINGLE_SUCCESS;
+												  }))
+												  .then(literal("remove")
+																.then(argument("player", StringArgumentType.word())
+																			  .suggests((c, b) ->
+																			  {
+																				  whitelistedNames.stream()
+																								  .filter(s -> s.toLowerCase().startsWith(b.getRemainingLowerCase()))
+																								  .forEach(b::suggest);
+																				  return b.buildFuture();
+																			  })
+																			  .executes(c ->
+																			  {
+																				  var player = c.getArgument("player", String.class);
+																				  if (!whitelistedNames.contains(player))
+																					  throw unknownPlayer.create(player);
+																				  c.getSource()
+																				   .sendFeedback(Component.translatable("commands.bob-compass.whitelist.remove", player));
+																				  whitelistedNames.remove(player);
+																				  saveWhitelist();
+																				  return Command.SINGLE_SUCCESS;
+																			  })))
+												  .then(literal("add")
+																.then(argument("player", StringArgumentType.word())
+																			  .suggests((c, b) ->
+																			  {
+																				  c.getSource()
+																				   .getOnlinePlayerNames()
+																				   .stream()
+																				   .filter(s -> s.toLowerCase().startsWith(b.getRemainingLowerCase()))
+																				   .forEach(b::suggest);
+																				  return b.buildFuture();
+																			  })
+																			  .executes(c ->
+																			  {
+																				  var player = c.getArgument("player", String.class);
+																				  if (whitelistedNames.contains(player))
+																					  throw existingPlayer.create(player);
+																				  c.getSource()
+																				   .sendFeedback(Component.translatable("commands.bob-compass.whitelist.add", player));
+																				  whitelistedNames.add(player);
+																				  saveWhitelist();
+																				  return Command.SINGLE_SUCCESS;
+																			  })))
+												  .then(argument("player", StringArgumentType.word())
+																.suggests((c, b) ->
+																{
+																	c.getSource()
+																	 .getOnlinePlayerNames()
+																	 .stream()
+																	 .filter(s -> s.toLowerCase().startsWith(b.getRemainingLowerCase()))
+																	 .forEach(b::suggest);
+																	return b.buildFuture();
+																})
+																.executes(c ->
+																{
+																	var player = c.getArgument("player", String.class);
+																	if (whitelistedNames.contains(player))
+																		throw existingPlayer.create(player);
+																	c.getSource()
+																	 .sendFeedback(Component.translatable("commands.bob-compass.whitelist.add", player));
+																	whitelistedNames.add(player);
+																	saveWhitelist();
+																	return Command.SINGLE_SUCCESS;
+																}))
+												  .executes(c ->
+												  {
+													  if (!enableWhitelist)
+													  {
+														  c.getSource().sendFeedback(Component.translatable("commands.bob-compass.whitelist.list.disabled"));
+														  return Command.SINGLE_SUCCESS;
+													  }
+													  if (whitelistedNames.isEmpty())
+													  {
+														  c.getSource().sendFeedback(Component.translatable("commands.bob-compass.whitelist.list.empty"));
+														  return Command.SINGLE_SUCCESS;
+													  }
+													  c.getSource().sendFeedback(Component.translatable("commands.bob-compass.whitelist.list.header"));
+													  whitelistedNames.forEach(n -> c.getSource().sendFeedback(Component.literal(n)));
+													  return Command.SINGLE_SUCCESS;
+												  })
 										 )
 						   );
+	}
+
+	private void saveWhitelist()
+	{
+		var minecraft = Minecraft.getInstance();
+		var gameDir = minecraft.gameDirectory.toPath();
+		var dataDir = gameDir.resolve("compass");
+		var file = dataDir.resolve("whitelist.txt");
+		try
+		{
+			Files.createDirectories(dataDir);
+			var whitelist = enableWhitelist + "\n" + String.join("\n", whitelistedNames);
+			Files.writeString(file, whitelist);
+		}
+		catch (IOException e)
+		{
+			Compass.LOGGER.error("failed to write whitelist to {}", file);
+			Compass.LOGGER.error(e.toString());
+		}
+	}
+
+	private void reloadWhitelist()
+	{
+		var minecraft = Minecraft.getInstance();
+		var gameDir = minecraft.gameDirectory.toPath();
+		var dataDir = gameDir.resolve("compass");
+		var file = dataDir.resolve("whitelist.txt");
+		try
+		{
+			Files.createDirectories(dataDir);
+			var lines = Files.readAllLines(file);
+			if (lines.isEmpty())
+			{
+				Compass.LOGGER.error("whitelist file is empty!");
+				return;
+			}
+			enableWhitelist = Boolean.parseBoolean(lines.get(0));
+			whitelistedNames.clear();
+			lines.stream().skip(1).forEach(whitelistedNames::add);
+		}
+		catch (IOException e)
+		{
+			Compass.LOGGER.error("failed to read whitelist from {}", file);
+			Compass.LOGGER.error(e.toString());
+		}
 	}
 
 	private void onDisconnectWorld(ClientPacketListener clientPacketListener, Minecraft minecraft)

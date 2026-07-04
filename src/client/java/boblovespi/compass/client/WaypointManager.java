@@ -166,4 +166,10 @@ public class WaypointManager
 	{
 		return waypoints.get(name);
 	}
+
+	public void removeWaypointAndSave(String name)
+	{
+		removeWaypoint(name);
+		saveWaypoints();
+	}
 }
