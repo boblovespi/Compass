@@ -7,11 +7,14 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
+import net.fabricmc.fabric.api.networking.v1.PacketSender;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.core.Vec3i;
 import net.minecraft.core.registries.Registries;
@@ -24,25 +27,22 @@ import net.minecraft.util.FastColor;
 import net.minecraft.util.Mth;
 import net.minecraft.world.item.CompassItem;
 import net.minecraft.world.item.Items;
-import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import org.lwjgl.glfw.GLFW;
 
-import java.io.IOException;
-import java.nio.file.Files;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
-import java.util.function.ToIntFunction;
-import java.util.stream.Collectors;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
 
 public class CompassClient implements ClientModInitializer
 {
 	private static final ResourceLocation compassPointer = Compass.id("textures/hud/compass_pointer.png");
 	private static final DateTimeFormatter timeFormat = DateTimeFormatter.ofPattern("h:mm a");
-	private final Map<String, Waypoint> waypoints = new LinkedHashMap<>();
+	private WaypointManager waypointManager;
 	private final Set<String> whitelistedNames = new HashSet<>();
 	private boolean enableWhitelist = true;
 	private String targetedWaypoint = ".compass";
@@ -56,19 +56,27 @@ public class CompassClient implements ClientModInitializer
 		HudRenderCallback.EVENT.register(this::drawHudElements);
 		ClientReceiveMessageEvents.CHAT.register(this::onChat);
 		ClientTickEvents.END_CLIENT_TICK.register(this::onEndTick);
+		ClientPlayConnectionEvents.JOIN.register(this::onJoinNewWorld);
+		ClientPlayConnectionEvents.DISCONNECT.register(this::onDisconnectWorld);
+
+	}
+
+	private void onDisconnectWorld(ClientPacketListener clientPacketListener, Minecraft minecraft)
+	{
+		waypointManager.saveWaypoints();
+	}
+
+	private void onJoinNewWorld(ClientPacketListener handler, PacketSender sender, Minecraft client)
+	{
+		System.out.println("joining new world!");
+		waypointManager = WaypointManager.of();
 	}
 
 	private void onEndTick(Minecraft minecraft)
 	{
 		while (toggleWaypointKeybind.consumeClick())
 		{
-			targetedWaypoint = waypoints.keySet()
-										.stream()
-										.dropWhile(s -> !s.equals(targetedWaypoint))
-										.skip(1)
-										.findFirst()
-										.or(() -> waypoints.keySet().stream().findFirst())
-										.orElse("");
+			targetedWaypoint = waypointManager.nextWaypoint(targetedWaypoint);
 		}
 	}
 
@@ -93,82 +101,28 @@ public class CompassClient implements ClientModInitializer
 					if (!components[0].equals("waypoint"))
 						return;
 					var name = components[1];
-					var x = tryParseInt(components[2], Integer::parseInt);
+					var x = Utils.tryParseInt(components[2], Integer::parseInt);
 					if (x.isEmpty())
 						return;
-					var y = tryParseInt(components[3], Integer::parseInt);
+					var y = Utils.tryParseInt(components[3], Integer::parseInt);
 					if (y.isEmpty())
 						return;
-					var z = tryParseInt(components[4], Integer::parseInt);
+					var z = Utils.tryParseInt(components[4], Integer::parseInt);
 					if (z.isEmpty())
 						return;
 					var level = components[5];
-					var color = tryParseInt(components[6], Integer::decode);
+					var color = Utils.tryParseInt(components[6], Integer::decode);
 					if (color.isEmpty())
 						return;
 					var location = ResourceLocation.tryParse(level);
 					if (location == null)
 						return;
 					var pos = Vec3.atCenterOf(new Vec3i(x.getAsInt(), y.getAsInt(), z.getAsInt()));
-					modifyWaypointAndSave(name, new Waypoint(ResourceKey.create(Registries.DIMENSION, location), pos, color.getAsInt()));
+					Waypoint waypoint = new Waypoint(ResourceKey.create(Registries.DIMENSION, location), pos, color.getAsInt());
+					waypointManager.modifyWaypointAndSave(name, waypoint);
 				}
 			}
 		}
-	}
-
-	private void modifyWaypointAndSave(String name, Waypoint waypoint)
-	{
-		waypoints.put(name, waypoint);
-		saveWaypoints();
-	}
-
-	private void saveWaypoints()
-	{
-		var minecraft = Minecraft.getInstance();
-		var gameDir = minecraft.gameDirectory.toPath();
-		var dataDir = gameDir.resolve("compass");
-		var currentServer = minecraft.getCurrentServer();
-		if (currentServer != null)
-		{
-			dataDir = dataDir.resolve("server");
-			dataDir = dataDir.resolve(String.format("%s_%s", currentServer.name, currentServer.ip.replace('.', '_').replace(':','_')));
-		}
-		else
-		{
-			dataDir = dataDir.resolve("local");
-			assert minecraft.getSingleplayerServer() != null;
-			dataDir = dataDir.resolve(minecraft.getSingleplayerServer().getWorldPath(LevelResource.ROOT).getParent().getFileName());
-		}
-		assert minecraft.level != null;
-		var fileName = minecraft.level.dimension().location().toString().replace(":", "-");
-		var saveFile = dataDir.resolve(fileName + ".csv");
-		try
-		{
-			Files.createDirectories(dataDir);
-			Files.writeString(saveFile, waypoints.entrySet().stream().filter(e -> !e.getKey().startsWith(".")).map(e -> {
-				var n = e.getKey();
-				var w = e.getValue();
-				return String.format("%s,%f,%f,%f,%s,0x%06x", n, w.pos().x, w.pos().y, w.pos().z, w.level().location(), w.color());
-			}).collect(Collectors.joining("\n")));
-		}
-		catch (IOException e)
-		{
-			Compass.LOGGER.error(e.toString());
-		}
-	}
-
-	private static OptionalInt tryParseInt(String string, ToIntFunction<String> parser)
-	{
-		var value = 0;
-		try
-		{
-			value = parser.applyAsInt(string);
-		}
-		catch (Exception e)
-		{
-			return OptionalInt.empty();
-		}
-		return OptionalInt.of(value);
 	}
 
 	private void drawHudElements(GuiGraphics graphics, float delta)
@@ -231,16 +185,16 @@ public class CompassClient implements ClientModInitializer
 				var targetPos = CompassItem.isLodestoneCompass(item) ? CompassItem.getLodestonePosition(item.getTag()) : CompassItem.getSpawnPosition(player.level());
 				if (targetPos == null)
 					continue;
-				waypoints.put(".compass", new Waypoint(targetPos.dimension(), targetPos.pos().getCenter(), 0xAAFF00));
+				waypointManager.modifyWaypoint(".compass", new Waypoint(targetPos.dimension(), targetPos.pos().getCenter(), 0xAAFF00));
 				addedCompass = true;
 				break;
 			}
 		}
 		if (!addedCompass)
-			waypoints.remove(".compass");
+			waypointManager.removeWaypoint(".compass");
 
 		// waypoints
-		waypoints.forEach((name, waypoint) -> {
+		waypointManager.forEach((name, waypoint) -> {
 			if (!player.level().dimension().equals(waypoint.level()))
 				return;
 			var targetDir = Mth.wrapDegrees(Math.toDegrees(Mth.atan2(pos.x - waypoint.pos().x, waypoint.pos().z - pos.z))) + 180;
