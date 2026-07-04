@@ -7,6 +7,7 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -15,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class WaypointManager
 {
@@ -146,5 +148,22 @@ public class WaypointManager
 	public void forEach(BiConsumer<String, Waypoint> f)
 	{
 		waypoints.forEach(f);
+	}
+
+	public void clearAllWaypoints()
+	{
+		waypoints.clear();
+		saveWaypoints();
+	}
+
+	public Stream<String> streamNames()
+	{
+		return waypoints.keySet().stream();
+	}
+
+	@Nullable
+	public Waypoint getWaypoint(String name)
+	{
+		return waypoints.get(name);
 	}
 }

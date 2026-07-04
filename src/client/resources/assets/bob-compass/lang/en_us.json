@@ -1,3 +1,7 @@
 {
-	"key.bob-compass.toggle_waypoint": "Toggle Waypoint"
+	"key.bob-compass.toggle_waypoint": "Toggle Waypoint",
+	"commands.bob-compass.waypoints.clear": "Cleared waypoints.",
+	"commands.bob-compass.waypoints.list.header": "Waypoints:",
+	"commands.bob-compass.waypoints.add": "Added waypoint %s.",
+	"commands.bob-compass.waypoints.list.entry": "%s: %s %s %s in %s (%s)"
 }

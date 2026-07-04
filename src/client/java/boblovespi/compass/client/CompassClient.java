@@ -3,7 +3,14 @@ package boblovespi.compass.client;
 import boblovespi.compass.Compass;
 import com.mojang.authlib.GameProfile;
 import com.mojang.blaze3d.platform.InputConstants;
+import com.mojang.brigadier.Command;
+import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.LiteralMessage;
+import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.brigadier.exceptions.DynamicCommandExceptionType;
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
+import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
@@ -16,6 +23,9 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.client.renderer.RenderType;
+import net.minecraft.commands.CommandBuildContext;
+import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
+import net.minecraft.commands.arguments.coordinates.Coordinates;
 import net.minecraft.core.Vec3i;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.ChatType;
@@ -38,6 +48,9 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 
+import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.argument;
+import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.literal;
+
 public class CompassClient implements ClientModInitializer
 {
 	private static final ResourceLocation compassPointer = Compass.id("textures/hud/compass_pointer.png");
@@ -54,11 +67,122 @@ public class CompassClient implements ClientModInitializer
 	public void onInitializeClient()
 	{
 		HudRenderCallback.EVENT.register(this::drawHudElements);
+		ClientCommandRegistrationCallback.EVENT.register(this::registerCommands);
 		ClientReceiveMessageEvents.CHAT.register(this::onChat);
 		ClientTickEvents.END_CLIENT_TICK.register(this::onEndTick);
 		ClientPlayConnectionEvents.JOIN.register(this::onJoinNewWorld);
 		ClientPlayConnectionEvents.DISCONNECT.register(this::onDisconnectWorld);
+	}
 
+	private void registerCommands(CommandDispatcher<FabricClientCommandSource> dispatcher, CommandBuildContext registryAccess)
+	{
+		var unknownName = new DynamicCommandExceptionType(n -> new LiteralMessage("Unknown waypoint '" + n + "'"));
+		dispatcher.register(literal("compass")
+									.then(literal("waypoints")
+												  .then(literal("clear").executes(c ->
+												  {
+													  c.getSource().sendFeedback(Component.translatable("commands.bob-compass.waypoints.clear"));
+													  waypointManager.clearAllWaypoints();
+													  return Command.SINGLE_SUCCESS;
+												  }))
+												  .then(literal("list").executes(c ->
+														  {
+															  c.getSource().sendFeedback(Component.translatable("commands.bob-compass.waypoints.list.header"));
+															  waypointManager.forEach((n, w) -> c.getSource()
+																								 .sendFeedback(
+																										 Component.translatable("commands.bob-compass.waypoints.list.entry", n,
+																												 String.format("%.0f", w.pos().x),
+																												 String.format("%.0f", w.pos().y),
+																												 String.format("%.0f", w.pos().z), w.level().location(),
+																												 String.format("#%06X", w.color())).withColor(w.color())));
+															  return Command.SINGLE_SUCCESS;
+														  })
+													   )
+												  .then(literal("here")
+																.then(argument("name", StringArgumentType.word())
+																			  .then(argument("color", ColorArgumentType.of()).executes(c ->
+																					  {
+																						  var name = c.getArgument("name", String.class);
+																						  var color = c.getArgument("color", int.class) & 0xFFFFFF;
+																						  var pos = c.getSource().getPosition();
+																						  var dim = c.getSource().getWorld().dimension();
+																						  var waypoint = new Waypoint(dim, pos, color);
+																						  waypointManager.modifyWaypointAndSave(name, waypoint);
+																						  c.getSource()
+																						   .sendFeedback(Component.translatable("commands.bob-compass.waypoints.add",
+																								   Component.literal(name).withColor(color)));
+																						  return Command.SINGLE_SUCCESS;
+																					  })
+																				   ).executes(c ->
+																		{
+																			var name = c.getArgument("name", String.class);
+																			var color = 0x00BBFF;
+																			var pos = c.getSource().getPosition();
+																			var dim = c.getSource().getWorld().dimension();
+																			var waypoint = new Waypoint(dim, pos, color);
+																			waypointManager.modifyWaypointAndSave(name, waypoint);
+																			c.getSource()
+																			 .sendFeedback(Component.translatable("commands.bob-compass.waypoints.add",
+																					 Component.literal(name).withColor(color)));
+																			return Command.SINGLE_SUCCESS;
+																		})
+																	 )
+													   )
+												  .then(literal("at")
+																.then(argument("pos", BlockPosArgument.blockPos())
+																			  .then(argument("name", StringArgumentType.word())
+																							.then(argument("color", ColorArgumentType.of()).executes(c ->
+																									{
+																										var name = c.getArgument("name", String.class);
+																										var color = c.getArgument("color", int.class) & 0xFFFFFF;
+																										var pos = c.getArgument("pos", Coordinates.class)
+																												   .getPosition(c.getSource().getPlayer().createCommandSourceStack());
+																										var dim = c.getSource().getWorld().dimension();
+																										var waypoint = new Waypoint(dim, pos, color);
+																										waypointManager.modifyWaypointAndSave(name, waypoint);
+																										c.getSource()
+																										 .sendFeedback(Component.translatable("commands.bob-compass.waypoints.add",
+																												 Component.literal(name).withColor(color)));
+																										return Command.SINGLE_SUCCESS;
+																									})
+																								 ).executes(c ->
+																					  {
+																						  var name = c.getArgument("name", String.class);
+																						  var color = 0x00BBFF;
+																						  var pos = c.getArgument("pos", Coordinates.class)
+																									 .getPosition(c.getSource().getPlayer().createCommandSourceStack());
+																						  var dim = c.getSource().getWorld().dimension();
+																						  var waypoint = new Waypoint(dim, pos, color);
+																						  waypointManager.modifyWaypointAndSave(name, waypoint);
+																						  c.getSource()
+																						   .sendFeedback(Component.translatable("commands.bob-compass.waypoints.add",
+																								   Component.literal(name).withColor(color)));
+																						  return Command.SINGLE_SUCCESS;
+																					  })
+																				   )
+																	 )
+													   )
+												  .then(literal("share")
+																.then(argument("name", StringArgumentType.word()).suggests((c, b) ->
+																		{
+																			waypointManager.streamNames()
+																						   .filter(s -> !s.startsWith("."))
+																						   .filter(s -> s.toLowerCase().startsWith(b.getRemainingLowerCase()))
+																						   .forEach(b::suggest);
+																			return b.buildFuture();
+																		}).executes(c ->
+																		{
+																			var name = c.getArgument("name", String.class);
+																			var waypoint = waypointManager.getWaypoint(name);
+																			if (waypoint == null)
+																				throw unknownName.create(name);
+																			c.getSource().getPlayer().connection.sendChat(waypoint.formatted(name));
+																			return Command.SINGLE_SUCCESS;
+																		})
+																	 )
+													   )
+										 )
+						   );
 	}
 
 	private void onDisconnectWorld(ClientPacketListener clientPacketListener, Minecraft minecraft)
