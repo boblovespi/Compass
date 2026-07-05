@@ -1,5 +1,6 @@
 {
 	"key.bob-compass.toggle_waypoint": "Toggle Waypoint",
+	"key.bob-compass.add_waypoint": "Add Waypoint at Crosshair",
 	"commands.bob-compass.waypoints.clear": "Cleared waypoints.",
 	"commands.bob-compass.waypoints.list.header": "Waypoints:",
 	"commands.bob-compass.waypoints.add": "Added waypoint %s.",

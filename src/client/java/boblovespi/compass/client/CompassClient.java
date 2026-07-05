@@ -22,6 +22,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.multiplayer.ClientPacketListener;
+import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.commands.CommandBuildContext;
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
@@ -35,6 +36,7 @@ import net.minecraft.util.FastColor;
 import net.minecraft.util.Mth;
 import net.minecraft.world.item.CompassItem;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import org.lwjgl.glfw.GLFW;
@@ -62,6 +64,8 @@ public class CompassClient implements ClientModInitializer
 
 	private final KeyMapping toggleWaypointKeybind = KeyBindingHelper.registerKeyBinding(
 			new KeyMapping("key.bob-compass.toggle_waypoint", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_J, KeyMapping.CATEGORY_MISC));
+	private final KeyMapping pingKeybind = KeyBindingHelper.registerKeyBinding(
+			new KeyMapping("key.bob-compass.add_waypoint", InputConstants.Type.MOUSE, GLFW.GLFW_MOUSE_BUTTON_MIDDLE, KeyMapping.CATEGORY_MISC));
 
 	@Override
 	public void onInitializeClient()
@@ -80,6 +84,7 @@ public class CompassClient implements ClientModInitializer
 		var unknownWaypoint = new DynamicCommandExceptionType(n -> new LiteralMessage("Unknown waypoint '" + n + "'"));
 		var unknownPlayer = new DynamicCommandExceptionType(n -> new LiteralMessage("Unknown player '" + n + "'"));
 		var existingPlayer = new DynamicCommandExceptionType(n -> new LiteralMessage("Player '" + n + "' is already whitelisted"));
+		// @formatter:off
 		dispatcher.register(literal("compass")
 									.then(literal("waypoints")
 												  .then(literal("clear").executes(c ->
@@ -347,6 +352,7 @@ public class CompassClient implements ClientModInitializer
 												  })
 										 )
 						   );
+		// @formatter:on
 	}
 
 	private void saveWhitelist()
@@ -460,12 +466,13 @@ public class CompassClient implements ClientModInitializer
 
 	private void drawHudElements(GuiGraphics graphics, float delta)
 	{
-		if (Minecraft.getInstance().getDebugOverlay().showDebugScreen())
+		var minecraft = Minecraft.getInstance();
+		if (minecraft.getDebugOverlay().showDebugScreen())
 			return;
-		var player = Minecraft.getInstance().player;
+		var player = minecraft.player;
 		if (player == null)
 			return;
-		var font = Minecraft.getInstance().font;
+		var font = minecraft.font;
 		var pos = player.getPosition(delta);
 		var dir = (((player.getViewYRot(delta) + 180) % 360) + 360) % 360;
 
@@ -480,6 +487,27 @@ public class CompassClient implements ClientModInitializer
 		var posStr = String.format("%.0f (%.0f) %.0f", pos.x, pos.y, pos.z);
 		var posWidth = font.width(posStr);
 		var minPosWidth = Math.max(60, posWidth);
+
+		// ping
+		if (pingKeybind.consumeClick())
+		{
+			if (!removePingIfExists(delta, player))
+			{
+				var raycast = player.pick(50, delta, false);
+				if (raycast.getType() != HitResult.Type.MISS)
+				{
+					var loc = raycast.getLocation();
+					waypointManager.modifyWaypointAndSave(".ping", new Waypoint(player.level().dimension(), loc, 0xff5900));
+					targetedWaypoint = ".ping";
+				}
+			}
+
+		}
+		// consume remaining clicks
+		//noinspection StatementWithEmptyBody
+		while (pingKeybind.consumeClick())
+		{
+		}
 
 		// top bg
 		graphics.fill(start + gradientLength, 3, start + totalWidth - gradientLength, 14, 0x40707070);
@@ -578,6 +606,24 @@ public class CompassClient implements ClientModInitializer
 		graphics.drawString(font, posStr, center - posWidth - 8, 17, 0xDDDDDD, false);
 
 		// graphics.drawString(font, String.format("%.0f", dir), 50, 50, 0xFFFFFF, false);
+	}
+
+	private boolean removePingIfExists(float delta, LocalPlayer player)
+	{
+		var ping = waypointManager.getWaypoint(".ping");
+		if (ping == null)
+			return false;
+		if (!player.level().dimension().equals(ping.level()))
+			return false;
+		var viewVec = player.getViewVector(delta);
+		var pingVec = ping.pos().subtract(player.getEyePosition(delta)).normalize();
+		// 0.996194698 = cosine of 5 degrees
+		if (viewVec.dot(pingVec) >= 0.996194698)
+		{
+			waypointManager.removeWaypoint(".ping");
+			return true;
+		}
+		return false;
 	}
 
 	private void fillGradientHorizontal(GuiGraphics graphics, int x1, int y1, int x2, int y2, int color1, int color2)

@@ -127,7 +127,7 @@ public class WaypointManager
 		try
 		{
 			Files.createDirectories(savePath.getParent());
-			Files.writeString(savePath, waypoints.entrySet().stream().filter(e -> !e.getKey().startsWith(".")).map(e -> {
+			Files.writeString(savePath, waypoints.entrySet().stream().filter(e -> !e.getKey().startsWith(".compass")).map(e -> {
 				var n = e.getKey();
 				var w = e.getValue();
 				return String.format("%s,%f,%f,%f,%s,0x%06x", n, w.pos().x, w.pos().y, w.pos().z, w.level().location(), w.color());
@@ -171,5 +171,10 @@ public class WaypointManager
 	{
 		removeWaypoint(name);
 		saveWaypoints();
+	}
+
+	public boolean hasWaypoint(String name)
+	{
+		return waypoints.containsKey(name);
 	}
 }

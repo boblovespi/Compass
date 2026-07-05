@@ -3,15 +3,15 @@
 	"id": "bob-compass",
 	"version": "${version}",
 	"name": "Compass",
-	"description": "This is an example description! Tell everyone what your mod is about!",
+	"description": "Shows a compass bar and some waypoints.",
 	"authors": [
-		"Me!"
+		"boblovespi"
 	],
 	"contact": {
 		"homepage": "https://fabricmc.net/",
 		"sources": "https://github.com/FabricMC/fabric-example-mod"
 	},
-	"license": "CC0-1.0",
+	"license": "to be determined",
 	"icon": "assets/bob-compass/icon.png",
 	"environment": "*",
 	"entrypoints": {
