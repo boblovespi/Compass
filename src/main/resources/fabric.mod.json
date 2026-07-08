@@ -13,13 +13,13 @@
 	},
 	"license": "to be determined",
 	"icon": "assets/bob-compass/icon.png",
-	"environment": "*",
+	"environment": "client",
 	"entrypoints": {
-		"main": [
-			"boblovespi.compass.Compass"
-		],
 		"client": [
 			"boblovespi.compass.client.CompassClient"
+		],
+		"modmenu": [
+			"boblovespi.compass.client.ModMenuHandler"
 		]
 	},
 	"mixins": [
@@ -33,6 +33,7 @@
 		"fabricloader": ">=0.19.3",
 		"minecraft": "~1.20.4",
 		"java": ">=17",
-		"fabric-api": "*"
+		"fabric-api": "*",
+		"yet_another_config_lib_v3": ">=${yacl_version}"
 	}
 }

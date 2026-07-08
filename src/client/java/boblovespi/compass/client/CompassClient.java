@@ -32,6 +32,7 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.*;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.tags.ItemTags;
 import net.minecraft.util.FastColor;
 import net.minecraft.util.Mth;
 import net.minecraft.world.item.CompassItem;
@@ -63,9 +64,9 @@ public class CompassClient implements ClientModInitializer
 	private String targetedWaypoint = ".compass";
 
 	private final KeyMapping toggleWaypointKeybind = KeyBindingHelper.registerKeyBinding(
-			new KeyMapping("key.bob-compass.toggle_waypoint", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_J, KeyMapping.CATEGORY_MISC));
+			new KeyMapping("key.bob-compass.toggle_waypoint", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_J, "key.bob-compass.category"));
 	private final KeyMapping pingKeybind = KeyBindingHelper.registerKeyBinding(
-			new KeyMapping("key.bob-compass.add_waypoint", InputConstants.Type.MOUSE, GLFW.GLFW_MOUSE_BUTTON_MIDDLE, KeyMapping.CATEGORY_MISC));
+			new KeyMapping("key.bob-compass.add_waypoint", InputConstants.Type.MOUSE, GLFW.GLFW_MOUSE_BUTTON_MIDDLE, "key.bob-compass.category"));
 
 	@Override
 	public void onInitializeClient()
@@ -497,7 +498,7 @@ public class CompassClient implements ClientModInitializer
 				if (raycast.getType() != HitResult.Type.MISS)
 				{
 					var loc = raycast.getLocation();
-					waypointManager.modifyWaypointAndSave(".ping", new Waypoint(player.level().dimension(), loc, 0xff5900));
+					waypointManager.modifyWaypointAndSave(".ping", new Waypoint(player.level().dimension(), loc, Config.HANDLER.instance().pingWaypointColor));
 					targetedWaypoint = ".ping";
 				}
 			}
@@ -509,14 +510,38 @@ public class CompassClient implements ClientModInitializer
 		{
 		}
 
-		// top bg
-		graphics.fill(start + gradientLength, 3, start + totalWidth - gradientLength, 14, 0x40707070);
-		fillGradientHorizontal(graphics, start, 3, start + gradientLength, 14, 0x00707070, 0x40707070);
-		fillGradientHorizontal(graphics, start + totalWidth - gradientLength, 3, start + totalWidth, 14, 0x40707070, 0x00707070);
+		// compass
+		var addedCompass = false;
+		var config = Config.HANDLER.instance();
+		for (var item : player.getInventory().items)
+		{
+			if (item.is(Items.COMPASS))
+			{
+				var targetPos = CompassItem.isLodestoneCompass(item) ? CompassItem.getLodestonePosition(item.getTag()) : CompassItem.getSpawnPosition(player.level());
+				if (targetPos == null)
+					continue;
+				waypointManager.modifyWaypoint(".compass", new Waypoint(targetPos.dimension(), targetPos.pos().getCenter(), config.compassWaypointColor));
+				addedCompass = true;
+				break;
+			}
+		}
+		if (!addedCompass)
+			waypointManager.removeWaypoint(".compass");
 
-		graphics.fill(center - minPosWidth, 16, center + 60, 25, 0x40707070);
-		fillGradientHorizontal(graphics, center - minPosWidth - gradientLength, 16, center - minPosWidth, 25, 0x00707070, 0x40707070);
-		fillGradientHorizontal(graphics, center + 60, 16, center + 60 + gradientLength, 25, 0x40707070, 0x00707070);
+		if (config.requireCompassForCompassBar && !player.getMainHandItem().is(ItemTags.COMPASSES) && !player.getOffhandItem().is(ItemTags.COMPASSES))
+			return;
+
+		var y = config.yOffset;
+
+		// top bg
+		graphics.fill(start + gradientLength, y, start + totalWidth - gradientLength, y + 11, 0x40707070);
+		fillGradientHorizontal(graphics, start, y, start + gradientLength, y + 11, 0x00707070, 0x40707070);
+		fillGradientHorizontal(graphics, start + totalWidth - gradientLength, y, start + totalWidth, y + 11, 0x40707070, 0x00707070);
+
+
+		graphics.fill(center - minPosWidth, y + 13, center + 60, y + 22, 0x40707070);
+		fillGradientHorizontal(graphics, center - minPosWidth - gradientLength, y + 11 + 2, center - minPosWidth, y + 22, 0x00707070, 0x40707070);
+		fillGradientHorizontal(graphics, center + 60, y + 13, center + 60 + gradientLength, y + 22, 0x40707070, 0x00707070);
 
 		// top markers
 		var nearest15 = ((int) dir) / 15 * 15;
@@ -526,7 +551,7 @@ public class CompassClient implements ClientModInitializer
 			var alpha = x + halfWidth > gradientLength ? 0xFF : (x + halfWidth) * 0xFF / gradientLength;
 			alpha <<= 24;
 			var str = toCompassDir(the15);
-			drawCenteredStr(graphics, font, str, center + x, 5, 0xDDDDDD | alpha, false);
+			drawCenteredStr(graphics, font, str, center + x, y + 2, 0xDDDDDD | alpha, false);
 		}
 		for (var the15 = nearest15 + 15; the15 <= dir + 44; the15 += 15)
 		{
@@ -534,25 +559,8 @@ public class CompassClient implements ClientModInitializer
 			var alpha = halfWidth - x > gradientLength ? 0xFF : (halfWidth - x) * 0xFF / gradientLength;
 			alpha <<= 24;
 			var str = toCompassDir(the15);
-			drawCenteredStr(graphics, font, str, center + x, 5, 0xDDDDDD | alpha, false);
+			drawCenteredStr(graphics, font, str, center + x, y + 2, 0xDDDDDD | alpha, false);
 		}
-
-		// compass
-		var addedCompass = false;
-		for (var item : player.getInventory().items)
-		{
-			if (item.is(Items.COMPASS))
-			{
-				var targetPos = CompassItem.isLodestoneCompass(item) ? CompassItem.getLodestonePosition(item.getTag()) : CompassItem.getSpawnPosition(player.level());
-				if (targetPos == null)
-					continue;
-				waypointManager.modifyWaypoint(".compass", new Waypoint(targetPos.dimension(), targetPos.pos().getCenter(), 0xAAFF00));
-				addedCompass = true;
-				break;
-			}
-		}
-		if (!addedCompass)
-			waypointManager.removeWaypoint(".compass");
 
 		// waypoints
 		waypointManager.forEach((name, waypoint) -> {
@@ -560,10 +568,10 @@ public class CompassClient implements ClientModInitializer
 				return;
 			var targetDir = Mth.wrapDegrees(Math.toDegrees(Mth.atan2(pos.x - waypoint.pos().x, waypoint.pos().z - pos.z))) + 180;
 			var x = (int) (Mth.wrapDegrees(targetDir - dir) / 90f * totalWidth);
-			var y = 17;
+			var y2 = y + 14;
 			if (name.equals(targetedWaypoint))
 			{
-				y = 28;
+				y2 = y + 25;
 				var distance = pos.distanceTo(waypoint.pos());
 				var str = "";
 				var realX = 0;
@@ -582,28 +590,28 @@ public class CompassClient implements ClientModInitializer
 					str = String.format("%.0fm", distance);
 					realX = center + x;
 				}
-				drawCenteredStr(graphics, font, str, realX, y, waypoint.color(), true);
+				drawCenteredStr(graphics, font, str, realX, y2, waypoint.color(), true);
 				if (!name.startsWith("."))
-					drawCenteredStr(graphics, font, name, realX, y + 10, waypoint.color(), true);
+					drawCenteredStr(graphics, font, name, realX, y2 + 10, waypoint.color(), true);
 			}
 			if (x <= halfWidth && x >= -halfWidth)
 			{
 				var alpha = halfWidth - Math.abs(x) > gradientLength ? 0xFF : (halfWidth - Math.abs(x)) * 0xFF / gradientLength;
 				alpha <<= 24;
-				graphics.fillGradient(center + x - 1, 6, center + x + 1, y - 1, waypoint.color(), waypoint.color() | alpha);
+				graphics.fillGradient(center + x - 1, y + 3, center + x + 1, y2 - 1, waypoint.color(), waypoint.color() | alpha);
 			}
 		});
 
 		// line
-		graphics.fill(start + gradientLength, 14, center - 4, 16, 0xFFDDDDDD);
-		graphics.fill(center + 4, 14, start + totalWidth - gradientLength, 16, 0xFFDDDDDD);
-		fillGradientHorizontal(graphics, start, 14, start + gradientLength, 16, 0x00DDDDDD, 0xFFDDDDDD);
-		fillGradientHorizontal(graphics, start + totalWidth - gradientLength, 14, start + totalWidth, 16, 0xFFDDDDDD, 0x00DDDDDD);
-		graphics.blit(compassPointer, center - 8, 14, 16, 6, 0, 0, 16, 6, 16, 16);
+		graphics.fill(start + gradientLength, y + 11, center - 4, y + 11 + 2, 0xFFDDDDDD);
+		graphics.fill(center + 4, y + 11, start + totalWidth - gradientLength, y + 11 + 2, 0xFFDDDDDD);
+		fillGradientHorizontal(graphics, start, y + 11, start + gradientLength, y + 11 + 2, 0x00DDDDDD, 0xFFDDDDDD);
+		fillGradientHorizontal(graphics, start + totalWidth - gradientLength, y + 11, start + totalWidth, y + 11 + 2, 0xFFDDDDDD, 0x00DDDDDD);
+		graphics.blit(compassPointer, center - 8, y + 11, 16, 6, 0, 0, 16, 6, 16, 16);
 
 		// coords, time
-		graphics.drawString(font, timeString, center + 8, 17, 0xDDDDDD, false);
-		graphics.drawString(font, posStr, center - posWidth - 8, 17, 0xDDDDDD, false);
+		graphics.drawString(font, timeString, center + 8, y + 14, 0xDDDDDD, false);
+		graphics.drawString(font, posStr, center - posWidth - 8, y + 14, 0xDDDDDD, false);
 
 		// graphics.drawString(font, String.format("%.0f", dir), 50, 50, 0xFFFFFF, false);
 	}

@@ -1,6 +1,7 @@
 {
 	"key.bob-compass.toggle_waypoint": "Toggle Waypoint",
 	"key.bob-compass.add_waypoint": "Add Waypoint at Crosshair",
+	"key.bob-compass.category": "Compass",
 	"commands.bob-compass.waypoints.clear": "Cleared waypoints.",
 	"commands.bob-compass.waypoints.list.header": "Waypoints:",
 	"commands.bob-compass.waypoints.add": "Added waypoint %s.",
@@ -13,5 +14,14 @@
 	"commands.bob-compass.whitelist.remove": "Removed %s from whitelist.",
 	"commands.bob-compass.whitelist.list.disabled": "Whitelist is disabled.",
 	"commands.bob-compass.whitelist.list.empty": "Whitelist is empty.",
-	"commands.bob-compass.whitelist.add": "Added %s to whitelist."
+	"commands.bob-compass.whitelist.add": "Added %s to whitelist.",
+	"bob-compass.config.name": "Config",
+	"bob-compass.config.require_compass.name": "Require compass for compass bar",
+	"bob-compass.config.require_compass.tooltip": "Whether the compass bar requires you to hold a compass to be visible or not.",
+	"bob-compass.config.compass_color.name": "Compass waypoint color",
+	"bob-compass.config.compass_color.tooltip": "The color for the compass waypoint marker.",
+	"bob-compass.config.ping_color.name": "Waypoint at cursor color",
+	"bob-compass.config.ping_color.tooltip": "The color for the waypoint created at the cursor.",
+	"bob-compass.config.y_offset.name": "Compass bar Y offset",
+	"bob-compass.config.y_offset.tooltip": "The offset from the top of the screen, in pixels, of the compass bar."
 }
