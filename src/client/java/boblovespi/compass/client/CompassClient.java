@@ -1,8 +1,10 @@
 package boblovespi.compass.client;
 
 import boblovespi.compass.Compass;
+import boblovespi.compass.client.mixin.GameRendererAccessor;
 import com.mojang.authlib.GameProfile;
 import com.mojang.blaze3d.platform.InputConstants;
+import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.LiteralMessage;
@@ -17,6 +19,7 @@ import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.fabricmc.fabric.api.networking.v1.PacketSender;
+import net.minecraft.client.Camera;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -32,6 +35,8 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.*;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.util.FastColor;
 import net.minecraft.util.Mth;
@@ -40,6 +45,8 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
+import org.joml.Matrix4f;
+import org.joml.Vector4f;
 import org.lwjgl.glfw.GLFW;
 
 import java.io.IOException;
@@ -57,21 +64,27 @@ import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.lit
 public class CompassClient implements ClientModInitializer
 {
 	private static final ResourceLocation compassPointer = Compass.id("textures/hud/compass_pointer.png");
+	private static final ResourceLocation waypointMarker = Compass.id("textures/hud/waypoint_marker.png");
+	private static final ResourceLocation waypointMarkerInner = Compass.id("textures/hud/waypoint_marker_inner.png");
 	private static final DateTimeFormatter timeFormat = DateTimeFormatter.ofPattern("h:mm a");
 	private WaypointManager waypointManager;
 	private final Set<String> whitelistedNames = new HashSet<>();
 	private boolean enableWhitelist = true;
 	private String targetedWaypoint = ".compass";
+	private boolean newPing = false;
 
 	private final KeyMapping toggleWaypointKeybind = KeyBindingHelper.registerKeyBinding(
 			new KeyMapping("key.bob-compass.toggle_waypoint", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_J, "key.bob-compass.category"));
 	private final KeyMapping pingKeybind = KeyBindingHelper.registerKeyBinding(
 			new KeyMapping("key.bob-compass.add_waypoint", InputConstants.Type.MOUSE, GLFW.GLFW_MOUSE_BUTTON_MIDDLE, "key.bob-compass.category"));
 
+	// private RenderType WAYPOINT_RENDER = RenderType.create("waypoint_render", DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS, 786432, RenderType.CompositeState.builder().setShaderState(RENDERTYPE_GUI_SHADER).setTransparencyState(TRANSLUCENT_TRANSPARENCY).setDepthTestState(LEQUAL_DEPTH_TEST).createCompositeState(false));
+
 	@Override
 	public void onInitializeClient()
 	{
 		HudRenderCallback.EVENT.register(this::drawHudElements);
+		// WorldRenderEvents.LAST.register(this::drawWorldWaypoints);
 		ClientCommandRegistrationCallback.EVENT.register(this::registerCommands);
 		ClientReceiveMessageEvents.CHAT.register(this::onChat);
 		ClientTickEvents.END_CLIENT_TICK.register(this::onEndTick);
@@ -418,13 +431,27 @@ public class CompassClient implements ClientModInitializer
 		{
 			targetedWaypoint = waypointManager.nextWaypoint(targetedWaypoint);
 		}
+		if (newPing)
+		{
+			newPing = false;
+			if (minecraft.player != null)
+			{
+				var waypoint = waypointManager.getWaypoint(".ping");
+				var myName = minecraft.getUser().getName();
+				if (waypoint != null && Config.HANDLER.instance().sharePing)
+					minecraft.player.connection.sendChat(waypoint.formatted(".ping" + myName));
+				assert minecraft.level != null;
+				minecraft.level.playSound(minecraft.player, minecraft.player, SoundEvents.ARROW_HIT_PLAYER, SoundSource.PLAYERS, 1, 1);
+			}
+		}
 	}
 
 	private void onChat(Component message, @Nullable PlayerChatMessage signedMessage, @Nullable GameProfile sender, ChatType.Bound params, Instant receptionTimestamp)
 	{
 		var myName = Minecraft.getInstance().getUser().getName();
 		var sentFrom = sender == null ? null : sender.getName();
-		if (!enableWhitelist || (myName.equals(sentFrom) || whitelistedNames.contains(sentFrom)))
+		var sentFromMe = myName.equals(sentFrom);
+		if (!enableWhitelist || (sentFromMe || whitelistedNames.contains(sentFrom)))
 		{
 			// System.out.println(message.toString());
 			var messageStr = message.getString();
@@ -441,6 +468,8 @@ public class CompassClient implements ClientModInitializer
 					if (!components[0].equals("waypoint"))
 						return;
 					var name = components[1];
+					if (sentFromMe && name.startsWith("."))
+						return;
 					var x = Utils.tryParseInt(components[2], Integer::parseInt);
 					if (x.isEmpty())
 						return;
@@ -494,12 +523,13 @@ public class CompassClient implements ClientModInitializer
 		{
 			if (!removePingIfExists(delta, player))
 			{
-				var raycast = player.pick(50, delta, false);
+				var raycast = player.pick(100, delta, false);
 				if (raycast.getType() != HitResult.Type.MISS)
 				{
 					var loc = raycast.getLocation();
 					waypointManager.modifyWaypointAndSave(".ping", new Waypoint(player.level().dimension(), loc, Config.HANDLER.instance().pingWaypointColor));
 					targetedWaypoint = ".ping";
+					newPing = true;
 				}
 			}
 
@@ -530,6 +560,55 @@ public class CompassClient implements ClientModInitializer
 
 		if (config.requireCompassForCompassBar && !player.getMainHandItem().is(ItemTags.COMPASSES) && !player.getOffhandItem().is(ItemTags.COMPASSES))
 			return;
+
+		// begin render waypoint
+		var camera = minecraft.gameRenderer.getMainCamera();
+		switch (config.waypointMode)
+		{
+			case NEVER ->
+			{
+			}
+			case PING ->
+			{
+				var accessor = (GameRendererAccessor) minecraft.gameRenderer;
+				var fov = accessor.callGetFov(camera, delta, true);
+				var stack2 = new PoseStack();
+				stack2.mulPoseMatrix(minecraft.gameRenderer.getProjectionMatrix(fov));
+				// accessor.callBobHurt(stack2, delta);
+				// accessor.callBobView(stack2, delta);
+				waypointManager.forEach((n, ping) -> {
+					var dist = pos.distanceToSqr(ping.pos());
+					if (dist >= Mth.square((float) Config.HANDLER.instance().waypointRenderDistance))
+						return;
+					if (!player.level().dimension().equals(ping.level()))
+						return;
+					if (!n.startsWith(".ping"))
+						return;
+					var name = n.substring(5);
+					renderMarker(graphics, minecraft, ping, name, font, stack2.last().pose(), camera);
+				});
+			}
+			case WAYPOINT ->
+			{
+				var accessor = (GameRendererAccessor) minecraft.gameRenderer;
+				var fov = accessor.callGetFov(camera, delta, true);
+				var stack2 = new PoseStack();
+				stack2.mulPoseMatrix(minecraft.gameRenderer.getProjectionMatrix(fov));
+				// accessor.callBobHurt(stack2, delta);
+				// accessor.callBobView(stack2, delta);
+				var ping = waypointManager.getWaypoint(targetedWaypoint);
+				if (ping == null)
+					break;
+				var dist = pos.distanceToSqr(ping.pos());
+				if (dist >= Mth.square((float) Config.HANDLER.instance().waypointRenderDistance))
+					break;
+				if (!player.level().dimension().equals(ping.level()))
+					break;
+				renderMarker(graphics, minecraft, ping, "", font, stack2.last().pose(), camera);
+			}
+		}
+
+		// begin render bar
 
 		var y = config.yOffset;
 
@@ -616,22 +695,49 @@ public class CompassClient implements ClientModInitializer
 		// graphics.drawString(font, String.format("%.0f", dir), 50, 50, 0xFFFFFF, false);
 	}
 
+	private void renderMarker(GuiGraphics graphics, Minecraft minecraft, Waypoint ping, String name, Font font, Matrix4f cameraProjection, Camera camera)
+	{
+		var offset = ping.pos().subtract(camera.getPosition());
+		var cameraCoords = camera.rotation().transformInverse(offset.toVector3f());
+		var viewPos = new Vector4f();
+		cameraProjection.transform(cameraCoords.x, cameraCoords.y, cameraCoords.z, 1, viewPos);
+		viewPos.div(viewPos.w);
+		if (viewPos.z < 0)
+			return;
+		var sx = (viewPos.x * 0.5f + 0.5f) * graphics.guiWidth();
+		var sy = (viewPos.y * 0.5f + 0.5f) * graphics.guiHeight();
+		var stack = graphics.pose();
+		stack.pushPose();
+		stack.translate(sx, sy, -2);
+		var scale = switch (minecraft.options.guiScale().get())
+		{
+			case 1 -> 1f;
+			case 2 -> 1f;
+			case 3 -> 2f / 3f;
+			case 4 -> 0.5f;
+			case 5 -> 3f / 5f;
+			default -> 0.25f;
+		};
+		stack.scale(scale, scale, scale);
+		RenderUtils.blitColoredSprite(graphics, waypointMarkerInner, -8, 8, -8, 8, 0, 0, 0, 16, 16, 16, 16, ping.color() | 0xFF000000);
+		graphics.blit(waypointMarker, -8, -8, 16, 16, 0, 0, 16, 16, 16, 16);
+		if (!name.isEmpty())
+			drawCenteredStr(graphics, font, name, 0, 8, ping.color(), true);
+		stack.popPose();
+	}
+
 	private boolean removePingIfExists(float delta, LocalPlayer player)
 	{
-		var ping = waypointManager.getWaypoint(".ping");
-		if (ping == null)
-			return false;
-		if (!player.level().dimension().equals(ping.level()))
-			return false;
-		var viewVec = player.getViewVector(delta);
-		var pingVec = ping.pos().subtract(player.getEyePosition(delta)).normalize();
-		// 0.996194698 = cosine of 5 degrees
-		if (viewVec.dot(pingVec) >= 0.996194698)
-		{
-			waypointManager.removeWaypoint(".ping");
-			return true;
-		}
-		return false;
+		return waypointManager.removeIf((n, ping) -> {
+			if (!n.startsWith(".ping"))
+				return false;
+			if (!player.level().dimension().equals(ping.level()))
+				return false;
+			var viewVec = player.getViewVector(delta);
+			var pingVec = ping.pos().subtract(player.getEyePosition(delta)).normalize();
+			// 0.996194698 = cosine of 5 degrees
+			return viewVec.dot(pingVec) >= 0.996194698;
+		});
 	}
 
 	private void fillGradientHorizontal(GuiGraphics graphics, int x1, int y1, int x2, int y2, int color1, int color2)

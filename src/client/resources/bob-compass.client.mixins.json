@@ -10,5 +10,6 @@
 	},
 	"overwrites": {
 		"requireAnnotations": true
-	}
+	},
+	"mixins": ["GameRendererAccessor"]
 }

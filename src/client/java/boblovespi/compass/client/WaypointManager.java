@@ -15,6 +15,7 @@ import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.BiConsumer;
+import java.util.function.BiPredicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -176,5 +177,10 @@ public class WaypointManager
 	public boolean hasWaypoint(String name)
 	{
 		return waypoints.containsKey(name);
+	}
+
+	public boolean removeIf(BiPredicate<String, Waypoint> predicate)
+	{
+		return waypoints.entrySet().removeIf(e -> predicate.test(e.getKey(), e.getValue()));
 	}
 }

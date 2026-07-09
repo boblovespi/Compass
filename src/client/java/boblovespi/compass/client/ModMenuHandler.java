@@ -6,15 +6,21 @@ import dev.isxander.yacl3.api.ConfigCategory;
 import dev.isxander.yacl3.api.Option;
 import dev.isxander.yacl3.api.OptionDescription;
 import dev.isxander.yacl3.api.YetAnotherConfigLib;
-import dev.isxander.yacl3.api.controller.BooleanControllerBuilder;
-import dev.isxander.yacl3.api.controller.ColorControllerBuilder;
-import dev.isxander.yacl3.api.controller.IntegerFieldControllerBuilder;
+import dev.isxander.yacl3.api.controller.*;
 import net.minecraft.network.chat.Component;
 
 import java.awt.*;
+import java.util.Locale;
 
 public class ModMenuHandler implements ModMenuApi
 {
+	private static ControllerBuilder<WaypointMode> createWaypointModeController(Option<WaypointMode> o)
+	{
+		return EnumControllerBuilder.create(o)
+									.enumClass(WaypointMode.class)
+									.formatValue(f -> Component.translatable("bob-compass.config.waypoint_mode." + f.name().toLowerCase(Locale.ROOT)));
+	}
+
 	@Override
 	public ConfigScreenFactory<?> getModConfigScreenFactory()
 	{
@@ -38,7 +44,7 @@ public class ModMenuHandler implements ModMenuApi
 														)
 											.binding(defaults.requireCompassForCompassBar, () -> inst.requireCompassForCompassBar,
 													b -> inst.requireCompassForCompassBar = b)
-											.controller(BooleanControllerBuilder::create)
+											.controller(o -> BooleanControllerBuilder.create(o).yesNoFormatter())
 											.build()
 										   )
 									.option(
@@ -63,6 +69,42 @@ public class ModMenuHandler implements ModMenuApi
 											.binding(new Color(defaults.pingWaypointColor), () -> new Color(inst.pingWaypointColor),
 													b -> inst.pingWaypointColor = b.getRGB())
 											.controller(ColorControllerBuilder::create)
+											.build()
+										   )
+									.option(
+											Option
+											.<WaypointMode>createBuilder()
+											.name(Component.translatable("bob-compass.config.waypoint_mode.name"))
+											.description(
+													OptionDescription.of(Component.translatable("bob-compass.config.waypoint_mode.tooltip"))
+														)
+											.binding(defaults.waypointMode, () -> inst.waypointMode,
+													b -> inst.waypointMode = b)
+											.controller(ModMenuHandler::createWaypointModeController)
+											.build()
+										   )
+									.option(
+											Option
+											.<Boolean>createBuilder()
+											.name(Component.translatable("bob-compass.config.share_ping.name"))
+											.description(
+													OptionDescription.of(Component.translatable("bob-compass.config.share_ping.tooltip"))
+														)
+											.binding(defaults.sharePing, () -> inst.sharePing,
+													b -> inst.sharePing = b)
+											.controller(o -> BooleanControllerBuilder.create(o).yesNoFormatter())
+											.build()
+										   )
+									.option(
+											Option
+											.<Integer>createBuilder()
+											.name(Component.translatable("bob-compass.config.waypoint_render_distance.name"))
+											.description(
+													OptionDescription.of(Component.translatable("bob-compass.config.waypoint_render_distance.tooltip"))
+														)
+											.binding(defaults.waypointRenderDistance, () -> inst.waypointRenderDistance,
+													b -> inst.waypointRenderDistance = b)
+											.controller(o -> IntegerFieldControllerBuilder.create(o).min(-1))
 											.build()
 										   )
 									.option(

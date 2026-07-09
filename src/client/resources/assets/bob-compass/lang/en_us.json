@@ -1,6 +1,6 @@
 {
 	"key.bob-compass.toggle_waypoint": "Toggle Waypoint",
-	"key.bob-compass.add_waypoint": "Add Waypoint at Crosshair",
+	"key.bob-compass.add_waypoint": "Ping at Crosshair",
 	"key.bob-compass.category": "Compass",
 	"commands.bob-compass.waypoints.clear": "Cleared waypoints.",
 	"commands.bob-compass.waypoints.list.header": "Waypoints:",
@@ -20,8 +20,17 @@
 	"bob-compass.config.require_compass.tooltip": "Whether the compass bar requires you to hold a compass to be visible or not.",
 	"bob-compass.config.compass_color.name": "Compass waypoint color",
 	"bob-compass.config.compass_color.tooltip": "The color for the compass waypoint marker.",
-	"bob-compass.config.ping_color.name": "Waypoint at cursor color",
-	"bob-compass.config.ping_color.tooltip": "The color for the waypoint created at the cursor.",
+	"bob-compass.config.ping_color.name": "Ping waypoint color",
+	"bob-compass.config.ping_color.tooltip": "The color for the ping waypoint.",
 	"bob-compass.config.y_offset.name": "Compass bar Y offset",
-	"bob-compass.config.y_offset.tooltip": "The offset from the top of the screen, in pixels, of the compass bar."
+	"bob-compass.config.y_offset.tooltip": "The offset from the top of the screen, in pixels, of the compass bar.",
+	"bob-compass.config.waypoint_mode.name": "Waypoint marker mode",
+	"bob-compass.config.waypoint_mode.tooltip": "The mode of the display of the waypoint marker. Never to never display, Ping to display all ping markers, Waypoint to display the selected waypoint marker.",
+	"bob-compass.config.waypoint_mode.never": "Never",
+	"bob-compass.config.waypoint_mode.ping": "Ping",
+	"bob-compass.config.waypoint_mode.waypoint": "Waypoint",
+	"bob-compass.config.share_ping.name": "Share ping",
+	"bob-compass.config.share_ping.tooltip": "Whether to automatically share pings in chat.",
+	"bob-compass.config.waypoint_render_distance.name": "Waypoint marker render distance",
+	"bob-compass.config.waypoint_render_distance.tooltip": "How far to render the waypoint marker. Set to -1 to render arbritrarily far."
 }

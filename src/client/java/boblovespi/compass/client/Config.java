@@ -25,5 +25,11 @@ public class Config
 	@SerialEntry
 	public int pingWaypointColor = 0xff5900;
 	@SerialEntry
+	public WaypointMode waypointMode = WaypointMode.PING;
+	@SerialEntry
+	public boolean sharePing = false;
+	@SerialEntry
+	public int waypointRenderDistance = 200;
+	@SerialEntry
 	public int yOffset = 3;
 }
