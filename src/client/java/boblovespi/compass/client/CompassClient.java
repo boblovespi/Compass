@@ -448,7 +448,8 @@ public class CompassClient implements ClientModInitializer
 
 	private void onChat(Component message, @Nullable PlayerChatMessage signedMessage, @Nullable GameProfile sender, ChatType.Bound params, Instant receptionTimestamp)
 	{
-		var myName = Minecraft.getInstance().getUser().getName();
+		var minecraft = Minecraft.getInstance();
+		var myName = minecraft.getUser().getName();
 		var sentFrom = sender == null ? null : sender.getName();
 		var sentFromMe = myName.equals(sentFrom);
 		if (!enableWhitelist || (sentFromMe || whitelistedNames.contains(sentFrom)))
@@ -487,8 +488,10 @@ public class CompassClient implements ClientModInitializer
 					if (location == null)
 						return;
 					var pos = Vec3.atCenterOf(new Vec3i(x.getAsInt(), y.getAsInt(), z.getAsInt()));
-					Waypoint waypoint = new Waypoint(ResourceKey.create(Registries.DIMENSION, location), pos, color.getAsInt());
+					var waypoint = new Waypoint(ResourceKey.create(Registries.DIMENSION, location), pos, color.getAsInt());
 					waypointManager.modifyWaypointAndSave(name, waypoint);
+					if (name.startsWith(".ping") && minecraft.level != null)
+						minecraft.level.playSound(minecraft.player, waypoint.pos().x, waypoint.pos().y, waypoint.pos().z, SoundEvents.ARROW_HIT_PLAYER, SoundSource.PLAYERS, 1, 1);
 				}
 			}
 		}
@@ -701,9 +704,9 @@ public class CompassClient implements ClientModInitializer
 		var cameraCoords = camera.rotation().transformInverse(offset.toVector3f());
 		var viewPos = new Vector4f();
 		cameraProjection.transform(cameraCoords.x, cameraCoords.y, cameraCoords.z, 1, viewPos);
-		viewPos.div(viewPos.w);
-		if (viewPos.z < 0)
+		if (viewPos.w <= 0)
 			return;
+		viewPos.div(viewPos.w);
 		var sx = (viewPos.x * 0.5f + 0.5f) * graphics.guiWidth();
 		var sy = (viewPos.y * 0.5f + 0.5f) * graphics.guiHeight();
 		var stack = graphics.pose();
