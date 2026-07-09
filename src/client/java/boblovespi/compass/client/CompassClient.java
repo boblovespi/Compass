@@ -701,11 +701,11 @@ public class CompassClient implements ClientModInitializer
 	private void renderMarker(GuiGraphics graphics, Minecraft minecraft, Waypoint ping, String name, Font font, Matrix4f cameraProjection, Camera camera)
 	{
 		var offset = ping.pos().subtract(camera.getPosition());
+		if (camera.getLookVector().dot((float) offset.x, (float) offset.y, (float) offset.z) <= 0)
+			return;
 		var cameraCoords = camera.rotation().transformInverse(offset.toVector3f());
 		var viewPos = new Vector4f();
 		cameraProjection.transform(cameraCoords.x, cameraCoords.y, cameraCoords.z, 1, viewPos);
-		if (viewPos.w <= 0)
-			return;
 		viewPos.div(viewPos.w);
 		var sx = (viewPos.x * 0.5f + 0.5f) * graphics.guiWidth();
 		var sy = (viewPos.y * 0.5f + 0.5f) * graphics.guiHeight();
