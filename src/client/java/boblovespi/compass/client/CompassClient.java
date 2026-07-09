@@ -87,6 +87,7 @@ public class CompassClient implements ClientModInitializer
 		// WorldRenderEvents.LAST.register(this::drawWorldWaypoints);
 		ClientCommandRegistrationCallback.EVENT.register(this::registerCommands);
 		ClientReceiveMessageEvents.CHAT.register(this::onChat);
+		ClientReceiveMessageEvents.GAME.register(this::onServerChat);
 		ClientTickEvents.END_CLIENT_TICK.register(this::onEndTick);
 		ClientPlayConnectionEvents.JOIN.register(this::onJoinNewWorld);
 		ClientPlayConnectionEvents.DISCONNECT.register(this::onDisconnectWorld);
@@ -454,45 +455,76 @@ public class CompassClient implements ClientModInitializer
 		var sentFromMe = myName.equals(sentFrom);
 		if (!enableWhitelist || (sentFromMe || whitelistedNames.contains(sentFrom)))
 		{
-			// System.out.println(message.toString());
 			var messageStr = message.getString();
 			var waypointIdx = messageStr.indexOf("waypoint");
 			if (waypointIdx != -1)
 			{
 				messageStr = messageStr.substring(waypointIdx).strip();
 				if (!messageStr.contains(" "))
-				{
-					var components = messageStr.split(",");
-					System.out.println(Arrays.toString(components));
-					if (components.length != 7)
-						return;
-					if (!components[0].equals("waypoint"))
-						return;
-					var name = components[1];
-					if (sentFromMe && name.startsWith("."))
-						return;
-					var x = Utils.tryParseInt(components[2], Integer::parseInt);
-					if (x.isEmpty())
-						return;
-					var y = Utils.tryParseInt(components[3], Integer::parseInt);
-					if (y.isEmpty())
-						return;
-					var z = Utils.tryParseInt(components[4], Integer::parseInt);
-					if (z.isEmpty())
-						return;
-					var level = components[5];
-					var color = Utils.tryParseInt(components[6], Integer::decode);
-					if (color.isEmpty())
-						return;
-					var location = ResourceLocation.tryParse(level);
-					if (location == null)
-						return;
-					var pos = Vec3.atCenterOf(new Vec3i(x.getAsInt(), y.getAsInt(), z.getAsInt()));
-					var waypoint = new Waypoint(ResourceKey.create(Registries.DIMENSION, location), pos, color.getAsInt());
-					waypointManager.modifyWaypointAndSave(name, waypoint);
-					if (name.startsWith(".ping") && minecraft.level != null)
-						minecraft.level.playSound(minecraft.player, waypoint.pos().x, waypoint.pos().y, waypoint.pos().z, SoundEvents.ARROW_HIT_PLAYER, SoundSource.PLAYERS, 1, 1);
-				}
+					parseChat(sentFromMe, minecraft, messageStr);
+			}
+		}
+	}
+
+	private void onServerChat(Component component, boolean overlay)
+	{
+		var minecraft = Minecraft.getInstance();
+		if (overlay)
+			return;
+		var myName = minecraft.getUser().getName();
+		var message = component.getString();
+		if (!enableWhitelist)
+		{
+			var waypointIdx = message.indexOf("waypoint");
+			if (waypointIdx != -1)
+			{
+				var prefix = message.substring(0, waypointIdx);
+				var sentFromMe = prefix.contains(myName);
+				message = message.substring(waypointIdx).strip();
+				if (!message.contains(" "))
+					parseChat(sentFromMe, minecraft, message);
+			}
+		}
+	}
+
+	private void parseChat(boolean sentFromMe, Minecraft minecraft, String message)
+	{
+		var waypointIdx = message.indexOf("waypoint");
+		if (waypointIdx != -1)
+		{
+			message = message.substring(waypointIdx).strip();
+			if (!message.contains(" "))
+			{
+				var components = message.split(",");
+				System.out.println(Arrays.toString(components));
+				if (components.length != 7)
+					return;
+				if (!components[0].equals("waypoint"))
+					return;
+				var name = components[1];
+				if (sentFromMe && name.startsWith("."))
+					return;
+				var x = Utils.tryParseInt(components[2], Integer::parseInt);
+				if (x.isEmpty())
+					return;
+				var y = Utils.tryParseInt(components[3], Integer::parseInt);
+				if (y.isEmpty())
+					return;
+				var z = Utils.tryParseInt(components[4], Integer::parseInt);
+				if (z.isEmpty())
+					return;
+				var level = components[5];
+				var color = Utils.tryParseInt(components[6], Integer::decode);
+				if (color.isEmpty())
+					return;
+				var location = ResourceLocation.tryParse(level);
+				if (location == null)
+					return;
+				var pos = Vec3.atCenterOf(new Vec3i(x.getAsInt(), y.getAsInt(), z.getAsInt()));
+				var waypoint = new Waypoint(ResourceKey.create(Registries.DIMENSION, location), pos, color.getAsInt());
+				waypointManager.modifyWaypointAndSave(name, waypoint);
+				if (name.startsWith(".ping") && minecraft.level != null)
+					minecraft.level.playSound(minecraft.player, waypoint.pos().x, waypoint.pos().y, waypoint.pos().z, SoundEvents.ARROW_HIT_PLAYER, SoundSource.PLAYERS, 1, 1);
 			}
 		}
 	}
