@@ -264,6 +264,16 @@ public class CompassClient implements ClientModInitializer
 				break;
 			}
 		}
+		if (!addedCompass && player.getOffhandItem().is(Items.COMPASS))
+		{
+			var item = player.getOffhandItem();
+			var targetPos = CompassItem.isLodestoneCompass(item) ? CompassItem.getLodestonePosition(item.getTag()) : CompassItem.getSpawnPosition(player.level());
+			if (targetPos != null)
+			{
+				waypointManager.modifyWaypoint(".compass", new Waypoint(targetPos.dimension(), targetPos.pos().getCenter(), config.compassWaypointColor));
+				addedCompass = true;
+			}
+		}
 		if (!addedCompass)
 			waypointManager.removeWaypoint(".compass");
 
