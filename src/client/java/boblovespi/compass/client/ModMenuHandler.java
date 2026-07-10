@@ -168,7 +168,7 @@ public class ModMenuHandler implements ModMenuApi
 													  OptionDescription.of(Component.translatable("bob-compass.config.suppress_messages.tooltip"))
 														)
 											.binding(defaults.suppressWaypointMessages, () -> inst.suppressWaypointMessages,
-													b -> inst.sharePing = b)
+													b -> inst.suppressWaypointMessages = b)
 											.controller(o -> BooleanControllerBuilder.create(o).yesNoFormatter())
 											.build()
 											)
