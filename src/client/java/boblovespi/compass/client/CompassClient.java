@@ -1,18 +1,17 @@
 package boblovespi.compass.client;
 
 import boblovespi.compass.Compass;
+import boblovespi.compass.client.config.Config;
 import boblovespi.compass.client.mixin.GameRendererAccessor;
+import boblovespi.compass.client.utils.RenderUtils;
+import boblovespi.compass.client.utils.Utils;
+import boblovespi.compass.client.waypoint.Waypoint;
+import boblovespi.compass.client.waypoint.WaypointManager;
 import com.mojang.authlib.GameProfile;
 import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.brigadier.Command;
-import com.mojang.brigadier.CommandDispatcher;
-import com.mojang.brigadier.LiteralMessage;
-import com.mojang.brigadier.arguments.StringArgumentType;
-import com.mojang.brigadier.exceptions.DynamicCommandExceptionType;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
-import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
@@ -26,19 +25,16 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.client.player.LocalPlayer;
-import net.minecraft.client.renderer.RenderType;
-import net.minecraft.commands.CommandBuildContext;
-import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
-import net.minecraft.commands.arguments.coordinates.Coordinates;
 import net.minecraft.core.Vec3i;
 import net.minecraft.core.registries.Registries;
-import net.minecraft.network.chat.*;
+import net.minecraft.network.chat.ChatType;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.PlayerChatMessage;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.tags.ItemTags;
-import net.minecraft.util.FastColor;
 import net.minecraft.util.Mth;
 import net.minecraft.world.item.CompassItem;
 import net.minecraft.world.item.Items;
@@ -49,27 +45,21 @@ import org.joml.Matrix4f;
 import org.joml.Vector4f;
 import org.lwjgl.glfw.GLFW;
 
-import java.io.IOException;
-import java.nio.file.Files;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Set;
-
-import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.argument;
-import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.literal;
 
 public class CompassClient implements ClientModInitializer
 {
+	public static final int SECONDS_IN_DAY = 86400;
+	public static final int TICKS_IN_DAY = 24000;
 	private static final ResourceLocation compassPointer = Compass.id("textures/hud/compass_pointer.png");
 	private static final ResourceLocation waypointMarker = Compass.id("textures/hud/waypoint_marker.png");
 	private static final ResourceLocation waypointMarkerInner = Compass.id("textures/hud/waypoint_marker_inner.png");
 	private static final DateTimeFormatter timeFormat = DateTimeFormatter.ofPattern("h:mm a");
 	private WaypointManager waypointManager;
-	private final Set<String> whitelistedNames = new HashSet<>();
-	private boolean enableWhitelist = true;
 	private String targetedWaypoint = ".compass";
 	private boolean newPing = false;
 
@@ -85,334 +75,12 @@ public class CompassClient implements ClientModInitializer
 	{
 		HudRenderCallback.EVENT.register(this::drawHudElements);
 		// WorldRenderEvents.LAST.register(this::drawWorldWaypoints);
-		ClientCommandRegistrationCallback.EVENT.register(this::registerCommands);
+		ClientCommandRegistrationCallback.EVENT.register((d, r) -> CommandRegisterer.registerCommands(waypointManager, d, r));
 		ClientReceiveMessageEvents.CHAT.register(this::onChat);
-		ClientReceiveMessageEvents.GAME.register(this::onServerChat);
+		ClientReceiveMessageEvents.MODIFY_GAME.register(this::onServerChat);
 		ClientTickEvents.END_CLIENT_TICK.register(this::onEndTick);
 		ClientPlayConnectionEvents.JOIN.register(this::onJoinNewWorld);
 		ClientPlayConnectionEvents.DISCONNECT.register(this::onDisconnectWorld);
-		reloadWhitelist();
-	}
-
-	private void registerCommands(CommandDispatcher<FabricClientCommandSource> dispatcher, CommandBuildContext registryAccess)
-	{
-		var unknownWaypoint = new DynamicCommandExceptionType(n -> new LiteralMessage("Unknown waypoint '" + n + "'"));
-		var unknownPlayer = new DynamicCommandExceptionType(n -> new LiteralMessage("Unknown player '" + n + "'"));
-		var existingPlayer = new DynamicCommandExceptionType(n -> new LiteralMessage("Player '" + n + "' is already whitelisted"));
-		// @formatter:off
-		dispatcher.register(literal("compass")
-									.then(literal("waypoints")
-												  .then(literal("clear").executes(c ->
-												  {
-													  c.getSource().sendFeedback(Component.translatable("commands.bob-compass.waypoints.clear"));
-													  waypointManager.clearAllWaypoints();
-													  return Command.SINGLE_SUCCESS;
-												  }))
-												  .then(literal("list").executes(c ->
-														  {
-															  c.getSource().sendFeedback(Component.translatable("commands.bob-compass.waypoints.list.header"));
-															  waypointManager.forEach((n, w) -> c.getSource()
-																								 .sendFeedback(
-																										 Component.translatable("commands.bob-compass.waypoints.list.entry", n,
-																														  String.format("%.0f", w.pos().x), String.format("%.0f", w.pos().y),
-																														  String.format("%.0f", w.pos().z), w.level().location(),
-																														  String.format("#%06X", w.color()))
-																												  .withStyle(Style.EMPTY.withClickEvent(
-																																		  new ClickEvent(ClickEvent.Action.COPY_TO_CLIPBOARD,
-																																				  w.formatted(n)))
-																																		.withHoverEvent(new HoverEvent(
-																																				HoverEvent.Action.SHOW_TEXT,
-																																				Component.literal(w.formatted(n))
-																																						 .withColor(w.color()))))
-																												  .withColor(w.color())));
-															  return Command.SINGLE_SUCCESS;
-														  })
-													   )
-												  .then(literal("here")
-																.then(argument("name", StringArgumentType.word())
-																			  .then(argument("color", ColorArgumentType.of()).executes(c ->
-																					  {
-																						  var name = c.getArgument("name", String.class);
-																						  var color = c.getArgument("color", int.class) & 0xFFFFFF;
-																						  var pos = c.getSource().getPosition();
-																						  var dim = c.getSource().getWorld().dimension();
-																						  var waypoint = new Waypoint(dim, pos, color);
-																						  waypointManager.modifyWaypointAndSave(name, waypoint);
-																						  c.getSource()
-																						   .sendFeedback(Component.translatable("commands.bob-compass.waypoints.add",
-																								   Component.literal(name).withColor(color)));
-																						  return Command.SINGLE_SUCCESS;
-																					  })
-																				   ).executes(c ->
-																		{
-																			var name = c.getArgument("name", String.class);
-																			var color = 0x00BBFF;
-																			var pos = c.getSource().getPosition();
-																			var dim = c.getSource().getWorld().dimension();
-																			var waypoint = new Waypoint(dim, pos, color);
-																			waypointManager.modifyWaypointAndSave(name, waypoint);
-																			c.getSource()
-																			 .sendFeedback(Component.translatable("commands.bob-compass.waypoints.add",
-																					 Component.literal(name).withColor(color)));
-																			return Command.SINGLE_SUCCESS;
-																		})
-																	 )
-													   )
-												  .then(literal("at")
-																.then(argument("pos", BlockPosArgument.blockPos())
-																			  .then(argument("name", StringArgumentType.word())
-																							.then(argument("color", ColorArgumentType.of()).executes(c ->
-																									{
-																										var name = c.getArgument("name", String.class);
-																										var color = c.getArgument("color", int.class) & 0xFFFFFF;
-																										var pos = c.getArgument("pos", Coordinates.class)
-																												   .getPosition(c.getSource().getPlayer().createCommandSourceStack());
-																										var dim = c.getSource().getWorld().dimension();
-																										var waypoint = new Waypoint(dim, pos, color);
-																										waypointManager.modifyWaypointAndSave(name, waypoint);
-																										c.getSource()
-																										 .sendFeedback(Component.translatable("commands.bob-compass.waypoints.add",
-																												 Component.literal(name).withColor(color)));
-																										return Command.SINGLE_SUCCESS;
-																									})
-																								 ).executes(c ->
-																					  {
-																						  var name = c.getArgument("name", String.class);
-																						  var color = 0x00BBFF;
-																						  var pos = c.getArgument("pos", Coordinates.class)
-																									 .getPosition(c.getSource().getPlayer().createCommandSourceStack());
-																						  var dim = c.getSource().getWorld().dimension();
-																						  var waypoint = new Waypoint(dim, pos, color);
-																						  waypointManager.modifyWaypointAndSave(name, waypoint);
-																						  c.getSource()
-																						   .sendFeedback(Component.translatable("commands.bob-compass.waypoints.add",
-																								   Component.literal(name).withColor(color)));
-																						  return Command.SINGLE_SUCCESS;
-																					  })
-																				   )
-																	 )
-													   )
-												  .then(literal("share")
-																.then(argument("name", StringArgumentType.word()).suggests((c, b) ->
-																		{
-																			waypointManager.streamNames()
-																						   .filter(s -> !s.startsWith("."))
-																						   .filter(s -> s.toLowerCase().startsWith(b.getRemainingLowerCase()))
-																						   .forEach(b::suggest);
-																			return b.buildFuture();
-																		}).executes(c ->
-																		{
-																			var name = c.getArgument("name", String.class);
-																			var waypoint = waypointManager.getWaypoint(name);
-																			if (waypoint == null)
-																				throw unknownWaypoint.create(name);
-																			c.getSource().getPlayer().connection.sendChat(waypoint.formatted(name));
-																			return Command.SINGLE_SUCCESS;
-																		})
-																	 )
-													   )
-												  .then(literal("remove").then(argument("name", StringArgumentType.word()).suggests((c, b) ->
-														  {
-															  waypointManager.streamNames()
-																			 .filter(s -> !s.startsWith("."))
-																			 .filter(s -> s.toLowerCase().startsWith(b.getRemainingLowerCase()))
-																			 .forEach(b::suggest);
-															  return b.buildFuture();
-														  }).executes(c ->
-														  {
-															  var name = c.getArgument("name", String.class);
-															  var waypoint = waypointManager.getWaypoint(name);
-															  if (waypoint == null)
-																  throw unknownPlayer.create(name);
-															  c.getSource()
-															   .sendFeedback(Component.translatable("commands.bob-compass.waypoints.remove",
-																	   Component.literal(name).withColor(waypoint.color())));
-															  waypointManager.removeWaypointAndSave(name);
-															  return Command.SINGLE_SUCCESS;
-														  })
-																			  ))
-												  .executes(c ->
-												  {
-													  c.getSource().sendFeedback(Component.translatable("commands.bob-compass.waypoints.list.header"));
-													  waypointManager.forEach((n, w) -> c.getSource()
-																						 .sendFeedback(
-																								 Component.translatable("commands.bob-compass.waypoints.list.entry", n,
-																												  String.format("%.0f", w.pos().x), String.format("%.0f", w.pos().y),
-																												  String.format("%.0f", w.pos().z), w.level().location(),
-																												  String.format("#%06X", w.color()))
-																										  .withStyle(Style.EMPTY.withClickEvent(
-																																  new ClickEvent(ClickEvent.Action.COPY_TO_CLIPBOARD,
-																																		  w.formatted(n)))
-																																.withHoverEvent(new HoverEvent(
-																																		HoverEvent.Action.SHOW_TEXT,
-																																		Component.literal(w.formatted(n))
-																																				 .withColor(w.color()))))
-																										  .withColor(w.color())));
-													  return Command.SINGLE_SUCCESS;
-												  })
-										 )
-									.then(literal("whitelist")
-												  .then(literal("clear").executes(c ->
-												  {
-													  c.getSource().sendFeedback(Component.translatable("commands.bob-compass.whitelist.clear"));
-													  whitelistedNames.clear();
-													  saveWhitelist();
-													  return Command.SINGLE_SUCCESS;
-												  }))
-												  .then(literal("list").executes(c ->
-												  {
-													  if (!enableWhitelist)
-														  c.getSource().sendFeedback(Component.translatable("commands.bob-compass.whitelist.list.disabled"));
-													  if (whitelistedNames.isEmpty())
-													  {
-														  c.getSource().sendFeedback(Component.translatable("commands.bob-compass.whitelist.list.empty"));
-														  return Command.SINGLE_SUCCESS;
-													  }
-													  c.getSource().sendFeedback(Component.translatable("commands.bob-compass.whitelist.list.header"));
-													  whitelistedNames.forEach(n -> c.getSource().sendFeedback(Component.literal(n)));
-													  return Command.SINGLE_SUCCESS;
-												  }))
-												  .then(literal("enable").executes(c ->
-												  {
-													  c.getSource().sendFeedback(Component.translatable("commands.bob-compass.whitelist.enable"));
-													  enableWhitelist = true;
-													  saveWhitelist();
-													  return Command.SINGLE_SUCCESS;
-												  }))
-												  .then(literal("disable").executes(c ->
-												  {
-													  c.getSource().sendFeedback(Component.translatable("commands.bob-compass.whitelist.disable"));
-													  enableWhitelist = false;
-													  saveWhitelist();
-													  return Command.SINGLE_SUCCESS;
-												  }))
-												  .then(literal("remove")
-																.then(argument("player", StringArgumentType.word())
-																			  .suggests((c, b) ->
-																			  {
-																				  whitelistedNames.stream()
-																								  .filter(s -> s.toLowerCase().startsWith(b.getRemainingLowerCase()))
-																								  .forEach(b::suggest);
-																				  return b.buildFuture();
-																			  })
-																			  .executes(c ->
-																			  {
-																				  var player = c.getArgument("player", String.class);
-																				  if (!whitelistedNames.contains(player))
-																					  throw unknownPlayer.create(player);
-																				  c.getSource()
-																				   .sendFeedback(Component.translatable("commands.bob-compass.whitelist.remove", player));
-																				  whitelistedNames.remove(player);
-																				  saveWhitelist();
-																				  return Command.SINGLE_SUCCESS;
-																			  })))
-												  .then(literal("add")
-																.then(argument("player", StringArgumentType.word())
-																			  .suggests((c, b) ->
-																			  {
-																				  c.getSource()
-																				   .getOnlinePlayerNames()
-																				   .stream()
-																				   .filter(s -> s.toLowerCase().startsWith(b.getRemainingLowerCase()))
-																				   .forEach(b::suggest);
-																				  return b.buildFuture();
-																			  })
-																			  .executes(c ->
-																			  {
-																				  var player = c.getArgument("player", String.class);
-																				  if (whitelistedNames.contains(player))
-																					  throw existingPlayer.create(player);
-																				  c.getSource()
-																				   .sendFeedback(Component.translatable("commands.bob-compass.whitelist.add", player));
-																				  whitelistedNames.add(player);
-																				  saveWhitelist();
-																				  return Command.SINGLE_SUCCESS;
-																			  })))
-												  .then(argument("player", StringArgumentType.word())
-																.suggests((c, b) ->
-																{
-																	c.getSource()
-																	 .getOnlinePlayerNames()
-																	 .stream()
-																	 .filter(s -> s.toLowerCase().startsWith(b.getRemainingLowerCase()))
-																	 .forEach(b::suggest);
-																	return b.buildFuture();
-																})
-																.executes(c ->
-																{
-																	var player = c.getArgument("player", String.class);
-																	if (whitelistedNames.contains(player))
-																		throw existingPlayer.create(player);
-																	c.getSource()
-																	 .sendFeedback(Component.translatable("commands.bob-compass.whitelist.add", player));
-																	whitelistedNames.add(player);
-																	saveWhitelist();
-																	return Command.SINGLE_SUCCESS;
-																}))
-												  .executes(c ->
-												  {
-													  if (!enableWhitelist)
-													  {
-														  c.getSource().sendFeedback(Component.translatable("commands.bob-compass.whitelist.list.disabled"));
-														  return Command.SINGLE_SUCCESS;
-													  }
-													  if (whitelistedNames.isEmpty())
-													  {
-														  c.getSource().sendFeedback(Component.translatable("commands.bob-compass.whitelist.list.empty"));
-														  return Command.SINGLE_SUCCESS;
-													  }
-													  c.getSource().sendFeedback(Component.translatable("commands.bob-compass.whitelist.list.header"));
-													  whitelistedNames.forEach(n -> c.getSource().sendFeedback(Component.literal(n)));
-													  return Command.SINGLE_SUCCESS;
-												  })
-										 )
-						   );
-		// @formatter:on
-	}
-
-	private void saveWhitelist()
-	{
-		var minecraft = Minecraft.getInstance();
-		var gameDir = minecraft.gameDirectory.toPath();
-		var dataDir = gameDir.resolve("compass");
-		var file = dataDir.resolve("whitelist.txt");
-		try
-		{
-			Files.createDirectories(dataDir);
-			var whitelist = enableWhitelist + "\n" + String.join("\n", whitelistedNames);
-			Files.writeString(file, whitelist);
-		}
-		catch (IOException e)
-		{
-			Compass.LOGGER.error("failed to write whitelist to {}", file);
-			Compass.LOGGER.error(e.toString());
-		}
-	}
-
-	private void reloadWhitelist()
-	{
-		var minecraft = Minecraft.getInstance();
-		var gameDir = minecraft.gameDirectory.toPath();
-		var dataDir = gameDir.resolve("compass");
-		var file = dataDir.resolve("whitelist.txt");
-		try
-		{
-			Files.createDirectories(dataDir);
-			var lines = Files.readAllLines(file);
-			if (lines.isEmpty())
-			{
-				Compass.LOGGER.error("whitelist file is empty!");
-				return;
-			}
-			enableWhitelist = Boolean.parseBoolean(lines.get(0));
-			whitelistedNames.clear();
-			lines.stream().skip(1).forEach(whitelistedNames::add);
-		}
-		catch (IOException e)
-		{
-			Compass.LOGGER.error("failed to read whitelist from {}", file);
-			Compass.LOGGER.error(e.toString());
-		}
 	}
 
 	private void onDisconnectWorld(ClientPacketListener clientPacketListener, Minecraft minecraft)
@@ -453,7 +121,7 @@ public class CompassClient implements ClientModInitializer
 		var myName = minecraft.getUser().getName();
 		var sentFrom = sender == null ? null : sender.getName();
 		var sentFromMe = myName.equals(sentFrom);
-		if (!enableWhitelist || (sentFromMe || whitelistedNames.contains(sentFrom)))
+		if (!Config.HANDLER.instance().enableWhitelist || (sentFromMe || Config.HANDLER.instance().whitelistNames.contains(sentFrom)))
 		{
 			var messageStr = message.getString();
 			var waypointIdx = messageStr.indexOf("waypoint");
@@ -466,14 +134,14 @@ public class CompassClient implements ClientModInitializer
 		}
 	}
 
-	private void onServerChat(Component component, boolean overlay)
+	private Component onServerChat(Component component, boolean overlay)
 	{
 		var minecraft = Minecraft.getInstance();
 		if (overlay)
-			return;
+			return component;
 		var myName = minecraft.getUser().getName();
 		var message = component.getString();
-		if (!enableWhitelist)
+		if (!Config.HANDLER.instance().enableWhitelist)
 		{
 			var waypointIdx = message.indexOf("waypoint");
 			if (waypointIdx != -1)
@@ -482,12 +150,14 @@ public class CompassClient implements ClientModInitializer
 				var sentFromMe = prefix.contains(myName);
 				message = message.substring(waypointIdx).strip();
 				if (!message.contains(" "))
-					parseChat(sentFromMe, minecraft, message);
+					if (parseChat(sentFromMe, minecraft, message) && Config.HANDLER.instance().suppressWaypointMessages)
+						return Component.translatable("bob-compass.chat.suppress_waypoint");
 			}
 		}
+		return component;
 	}
 
-	private void parseChat(boolean sentFromMe, Minecraft minecraft, String message)
+	private boolean parseChat(boolean sentFromMe, Minecraft minecraft, String message)
 	{
 		var waypointIdx = message.indexOf("waypoint");
 		if (waypointIdx != -1)
@@ -498,35 +168,37 @@ public class CompassClient implements ClientModInitializer
 				var components = message.split(",");
 				System.out.println(Arrays.toString(components));
 				if (components.length != 7)
-					return;
+					return false;
 				if (!components[0].equals("waypoint"))
-					return;
+					return false;
 				var name = components[1];
 				if (sentFromMe && name.startsWith("."))
-					return;
+					return false;
 				var x = Utils.tryParseInt(components[2], Integer::parseInt);
 				if (x.isEmpty())
-					return;
+					return false;
 				var y = Utils.tryParseInt(components[3], Integer::parseInt);
 				if (y.isEmpty())
-					return;
+					return false;
 				var z = Utils.tryParseInt(components[4], Integer::parseInt);
 				if (z.isEmpty())
-					return;
+					return false;
 				var level = components[5];
 				var color = Utils.tryParseInt(components[6], Integer::decode);
 				if (color.isEmpty())
-					return;
+					return false;
 				var location = ResourceLocation.tryParse(level);
 				if (location == null)
-					return;
+					return false;
 				var pos = Vec3.atCenterOf(new Vec3i(x.getAsInt(), y.getAsInt(), z.getAsInt()));
 				var waypoint = new Waypoint(ResourceKey.create(Registries.DIMENSION, location), pos, color.getAsInt());
 				waypointManager.modifyWaypointAndSave(name, waypoint);
 				if (name.startsWith(".ping") && minecraft.level != null)
 					minecraft.level.playSound(minecraft.player, waypoint.pos().x, waypoint.pos().y, waypoint.pos().z, SoundEvents.ARROW_HIT_PLAYER, SoundSource.PLAYERS, 1, 1);
+				return true;
 			}
 		}
+		return false;
 	}
 
 	private void drawHudElements(GuiGraphics graphics, float delta)
@@ -540,18 +212,6 @@ public class CompassClient implements ClientModInitializer
 		var font = minecraft.font;
 		var pos = player.getPosition(delta);
 		var dir = (((player.getViewYRot(delta) + 180) % 360) + 360) % 360;
-
-		var totalWidth = graphics.guiWidth() / 5 * 3 - 20;
-		var halfWidth = totalWidth / 2;
-		var start = graphics.guiWidth() / 2 - halfWidth;
-		var center = start + halfWidth;
-		var gradientLength = Math.min(totalWidth / 10, 20);
-		// graphics.enableScissor(start, 14, start + totalWidth, 16);
-		var time = LocalDateTime.now();
-		var timeString = time.format(timeFormat);
-		var posStr = String.format("%.0f (%.0f) %.0f", pos.x, pos.y, pos.z);
-		var posWidth = font.width(posStr);
-		var minPosWidth = Math.max(60, posWidth);
 
 		// ping
 		if (pingKeybind.consumeClick())
@@ -593,69 +253,89 @@ public class CompassClient implements ClientModInitializer
 		if (!addedCompass)
 			waypointManager.removeWaypoint(".compass");
 
-		if (config.requireCompassForCompassBar && !player.getMainHandItem().is(ItemTags.COMPASSES) && !player.getOffhandItem().is(ItemTags.COMPASSES))
-			return;
-
 		// begin render waypoint
 		var camera = minecraft.gameRenderer.getMainCamera();
-		switch (config.waypointMode)
+		switch (config.requireCompassForWaypointMarker)
 		{
-			case NEVER ->
+			case ALWAYS -> renderWaypointMarkers(graphics, delta, config, minecraft, camera, pos, player, font);
+			case REQUIRE_COMPASS_IN_HAND ->
 			{
+				if (player.getMainHandItem().is(ItemTags.COMPASSES) || player.getOffhandItem().is(ItemTags.COMPASSES))
+					renderWaypointMarkers(graphics, delta, config, minecraft, camera, pos, player, font);
 			}
-			case PING ->
+			case REQUIRE_COMPASS_IN_INVENTORY ->
 			{
-				var accessor = (GameRendererAccessor) minecraft.gameRenderer;
-				var fov = accessor.callGetFov(camera, delta, true);
-				var stack2 = new PoseStack();
-				stack2.mulPoseMatrix(minecraft.gameRenderer.getProjectionMatrix(fov));
-				// accessor.callBobHurt(stack2, delta);
-				// accessor.callBobView(stack2, delta);
-				waypointManager.forEach((n, ping) -> {
-					var dist = pos.distanceToSqr(ping.pos());
-					if (dist >= Mth.square((float) Config.HANDLER.instance().waypointRenderDistance))
-						return;
-					if (!player.level().dimension().equals(ping.level()))
-						return;
-					if (!n.startsWith(".ping"))
-						return;
-					var name = n.substring(5);
-					renderMarker(graphics, minecraft, ping, name, font, stack2.last().pose(), camera);
-				});
-			}
-			case WAYPOINT ->
-			{
-				var accessor = (GameRendererAccessor) minecraft.gameRenderer;
-				var fov = accessor.callGetFov(camera, delta, true);
-				var stack2 = new PoseStack();
-				stack2.mulPoseMatrix(minecraft.gameRenderer.getProjectionMatrix(fov));
-				// accessor.callBobHurt(stack2, delta);
-				// accessor.callBobView(stack2, delta);
-				var ping = waypointManager.getWaypoint(targetedWaypoint);
-				if (ping == null)
-					break;
-				var dist = pos.distanceToSqr(ping.pos());
-				if (dist >= Mth.square((float) Config.HANDLER.instance().waypointRenderDistance))
-					break;
-				if (!player.level().dimension().equals(ping.level()))
-					break;
-				renderMarker(graphics, minecraft, ping, "", font, stack2.last().pose(), camera);
+				if (player.getInventory().contains(ItemTags.COMPASSES))
+					renderWaypointMarkers(graphics, delta, config, minecraft, camera, pos, player, font);
 			}
 		}
 
 		// begin render bar
+		switch (config.requireCompassForCompassBar)
+		{
+			case ALWAYS -> renderCompassBar(graphics, config, dir, font, player, pos);
+			case REQUIRE_COMPASS_IN_HAND ->
+			{
+				if (player.getMainHandItem().is(ItemTags.COMPASSES) || player.getOffhandItem().is(ItemTags.COMPASSES))
+					renderCompassBar(graphics, config, dir, font, player, pos);
+			}
+			case REQUIRE_COMPASS_IN_INVENTORY ->
+			{
+				if (player.getInventory().contains(ItemTags.COMPASSES))
+					renderCompassBar(graphics, config, dir, font, player, pos);
+			}
+		}
 
+	}
+
+	private void renderCompassBar(GuiGraphics graphics, Config config, float dir, Font font, LocalPlayer player, Vec3 pos)
+	{
 		var y = config.yOffset;
+
+		var totalWidth = graphics.guiWidth() / 5 * 3 - 20;
+		var halfWidth = totalWidth / 2;
+		var start = graphics.guiWidth() / 2 - halfWidth;
+		var center = start + halfWidth;
+		var gradientLength = Math.min(totalWidth / 10, 20);
+		// graphics.enableScissor(start, 14, start + totalWidth, 16);
+		var rightString = switch (config.rightSideDisplay)
+		{
+			case NONE -> "";
+			case POSITION -> String.format("%.0f (%.0f) %.0f", pos.x, pos.y, pos.z);
+			case MINECRAFT_TIME -> LocalTime.ofSecondOfDay((player.level().getDayTime() * SECONDS_IN_DAY / TICKS_IN_DAY + SECONDS_IN_DAY / 4) % SECONDS_IN_DAY).format(timeFormat);
+			case REAL_TIME -> LocalDateTime.now().format(timeFormat);
+			case HEADING -> String.format("%.0f\u00b0", dir);
+		};
+		var rightWidth = switch (config.rightSideDisplay)
+		{
+			case NONE -> 20;
+			case POSITION -> Math.max(60, font.width(rightString));
+			case MINECRAFT_TIME, REAL_TIME, HEADING -> 60;
+		};
+		var leftString = switch (config.leftSideDisplay)
+		{
+			case NONE -> "";
+			case POSITION -> String.format("%.0f (%.0f) %.0f", pos.x, pos.y, pos.z);
+			case MINECRAFT_TIME -> LocalTime.ofSecondOfDay((player.level().getDayTime() * SECONDS_IN_DAY / TICKS_IN_DAY + SECONDS_IN_DAY / 4) % SECONDS_IN_DAY).format(timeFormat);
+			case REAL_TIME -> LocalDateTime.now().format(timeFormat);
+			case HEADING -> String.format("%.0f\u00b0", dir);
+		};
+		var realLeftWidth = font.width(leftString);
+		var leftWidth = switch (config.leftSideDisplay)
+		{
+			case NONE -> 20;
+			case POSITION -> Math.max(60, realLeftWidth);
+			case MINECRAFT_TIME, REAL_TIME, HEADING -> 60;
+		};
 
 		// top bg
 		graphics.fill(start + gradientLength, y, start + totalWidth - gradientLength, y + 11, 0x40707070);
-		fillGradientHorizontal(graphics, start, y, start + gradientLength, y + 11, 0x00707070, 0x40707070);
-		fillGradientHorizontal(graphics, start + totalWidth - gradientLength, y, start + totalWidth, y + 11, 0x40707070, 0x00707070);
+		RenderUtils.fillGradientHorizontal(graphics, start, y, start + gradientLength, y + 11, 0x00707070, 0x40707070);
+		RenderUtils.fillGradientHorizontal(graphics, start + totalWidth - gradientLength, y, start + totalWidth, y + 11, 0x40707070, 0x00707070);
 
-
-		graphics.fill(center - minPosWidth, y + 13, center + 60, y + 22, 0x40707070);
-		fillGradientHorizontal(graphics, center - minPosWidth - gradientLength, y + 11 + 2, center - minPosWidth, y + 22, 0x00707070, 0x40707070);
-		fillGradientHorizontal(graphics, center + 60, y + 13, center + 60 + gradientLength, y + 22, 0x40707070, 0x00707070);
+		graphics.fill(center - leftWidth, y + 13, center + rightWidth, y + 22, 0x40707070);
+		RenderUtils.fillGradientHorizontal(graphics, center - leftWidth - gradientLength, y + 11 + 2, center - leftWidth, y + 22, 0x00707070, 0x40707070);
+		RenderUtils.fillGradientHorizontal(graphics, center + rightWidth, y + 13, center + rightWidth + gradientLength, y + 22, 0x40707070, 0x00707070);
 
 		// top markers
 		var nearest15 = ((int) dir) / 15 * 15;
@@ -665,7 +345,7 @@ public class CompassClient implements ClientModInitializer
 			var alpha = x + halfWidth > gradientLength ? 0xFF : (x + halfWidth) * 0xFF / gradientLength;
 			alpha <<= 24;
 			var str = toCompassDir(the15);
-			drawCenteredStr(graphics, font, str, center + x, y + 2, 0xDDDDDD | alpha, false);
+			RenderUtils.drawCenteredStr(graphics, font, str, center + x, y + 2, 0xDDDDDD | alpha, false);
 		}
 		for (var the15 = nearest15 + 15; the15 <= dir + 44; the15 += 15)
 		{
@@ -673,7 +353,7 @@ public class CompassClient implements ClientModInitializer
 			var alpha = halfWidth - x > gradientLength ? 0xFF : (halfWidth - x) * 0xFF / gradientLength;
 			alpha <<= 24;
 			var str = toCompassDir(the15);
-			drawCenteredStr(graphics, font, str, center + x, y + 2, 0xDDDDDD | alpha, false);
+			RenderUtils.drawCenteredStr(graphics, font, str, center + x, y + 2, 0xDDDDDD | alpha, false);
 		}
 
 		// waypoints
@@ -704,9 +384,9 @@ public class CompassClient implements ClientModInitializer
 					str = String.format("%.0fm", distance);
 					realX = center + x;
 				}
-				drawCenteredStr(graphics, font, str, realX, y2, waypoint.color(), true);
+				RenderUtils.drawCenteredStr(graphics, font, str, realX, y2, waypoint.color(), true);
 				if (!name.startsWith("."))
-					drawCenteredStr(graphics, font, name, realX, y2 + 10, waypoint.color(), true);
+					RenderUtils.drawCenteredStr(graphics, font, name, realX, y2 + 10, waypoint.color(), true);
 			}
 			if (x <= halfWidth && x >= -halfWidth)
 			{
@@ -719,15 +399,90 @@ public class CompassClient implements ClientModInitializer
 		// line
 		graphics.fill(start + gradientLength, y + 11, center - 4, y + 11 + 2, 0xFFDDDDDD);
 		graphics.fill(center + 4, y + 11, start + totalWidth - gradientLength, y + 11 + 2, 0xFFDDDDDD);
-		fillGradientHorizontal(graphics, start, y + 11, start + gradientLength, y + 11 + 2, 0x00DDDDDD, 0xFFDDDDDD);
-		fillGradientHorizontal(graphics, start + totalWidth - gradientLength, y + 11, start + totalWidth, y + 11 + 2, 0xFFDDDDDD, 0x00DDDDDD);
+		RenderUtils.fillGradientHorizontal(graphics, start, y + 11, start + gradientLength, y + 11 + 2, 0x00DDDDDD, 0xFFDDDDDD);
+		RenderUtils.fillGradientHorizontal(graphics, start + totalWidth - gradientLength, y + 11, start + totalWidth, y + 11 + 2, 0xFFDDDDDD, 0x00DDDDDD);
 		graphics.blit(compassPointer, center - 8, y + 11, 16, 6, 0, 0, 16, 6, 16, 16);
 
 		// coords, time
-		graphics.drawString(font, timeString, center + 8, y + 14, 0xDDDDDD, false);
-		graphics.drawString(font, posStr, center - posWidth - 8, y + 14, 0xDDDDDD, false);
+		graphics.drawString(font, rightString, center + 8, y + 14, 0xDDDDDD, false);
+		graphics.drawString(font, leftString, center - realLeftWidth - 8, y + 14, 0xDDDDDD, false);
+	}
 
-		// graphics.drawString(font, String.format("%.0f", dir), 50, 50, 0xFFFFFF, false);
+	private void renderWaypointMarkers(GuiGraphics graphics, float delta, Config config, Minecraft minecraft, Camera camera, Vec3 pos, LocalPlayer player, Font font)
+	{
+		switch (config.waypointMode)
+		{
+			case NEVER ->
+			{
+			}
+			case PING ->
+			{
+				var accessor = (GameRendererAccessor) minecraft.gameRenderer;
+				var fov = accessor.callGetFov(camera, delta, true);
+				var stack2 = new PoseStack();
+				stack2.mulPoseMatrix(minecraft.gameRenderer.getProjectionMatrix(fov));
+				// accessor.callBobHurt(stack2, delta);
+				// accessor.callBobView(stack2, delta);
+				waypointManager.forEach((n, ping) -> {
+					var dist = pos.distanceToSqr(ping.pos());
+					if (dist >= Mth.square((float) Config.HANDLER.instance().markerRenderDistance))
+						return;
+					if (!player.level().dimension().equals(ping.level()))
+						return;
+					if (!n.startsWith(".ping"))
+						return;
+					var name = n.substring(5);
+					renderMarker(graphics, minecraft, ping, name, font, stack2.last().pose(), camera);
+				});
+			}
+			case WAYPOINT ->
+			{
+				var accessor = (GameRendererAccessor) minecraft.gameRenderer;
+				var fov = accessor.callGetFov(camera, delta, true);
+				var stack2 = new PoseStack();
+				stack2.mulPoseMatrix(minecraft.gameRenderer.getProjectionMatrix(fov));
+				// accessor.callBobHurt(stack2, delta);
+				// accessor.callBobView(stack2, delta);
+				var ping = waypointManager.getWaypoint(targetedWaypoint);
+				if (ping == null)
+					break;
+				var dist = pos.distanceToSqr(ping.pos());
+				if (dist >= Mth.square((float) Config.HANDLER.instance().markerRenderDistance))
+					break;
+				if (!player.level().dimension().equals(ping.level()))
+					break;
+				renderMarker(graphics, minecraft, ping, "", font, stack2.last().pose(), camera);
+			}
+			case BOTH ->
+			{
+				var accessor = (GameRendererAccessor) minecraft.gameRenderer;
+				var fov = accessor.callGetFov(camera, delta, true);
+				var stack2 = new PoseStack();
+				stack2.mulPoseMatrix(minecraft.gameRenderer.getProjectionMatrix(fov));
+				// accessor.callBobHurt(stack2, delta);
+				// accessor.callBobView(stack2, delta);
+				waypointManager.forEach((n, ping) -> {
+					var dist = pos.distanceToSqr(ping.pos());
+					if (dist >= Mth.square((float) Config.HANDLER.instance().markerRenderDistance))
+						return;
+					if (!player.level().dimension().equals(ping.level()))
+						return;
+					if (!n.startsWith(".ping"))
+						return;
+					var name = n.substring(5);
+					renderMarker(graphics, minecraft, ping, name, font, stack2.last().pose(), camera);
+				});
+				var ping = waypointManager.getWaypoint(targetedWaypoint);
+				if (ping == null)
+					break;
+				var dist = pos.distanceToSqr(ping.pos());
+				if (dist >= Mth.square((float) Config.HANDLER.instance().markerRenderDistance))
+					break;
+				if (!player.level().dimension().equals(ping.level()))
+					break;
+				renderMarker(graphics, minecraft, ping, "", font, stack2.last().pose(), camera);
+			}
+		}
 	}
 
 	private void renderMarker(GuiGraphics graphics, Minecraft minecraft, Waypoint ping, String name, Font font, Matrix4f cameraProjection, Camera camera)
@@ -757,7 +512,7 @@ public class CompassClient implements ClientModInitializer
 		RenderUtils.blitColoredSprite(graphics, waypointMarkerInner, -8, 8, -8, 8, 0, 0, 0, 16, 16, 16, 16, ping.color() | 0xFF000000);
 		graphics.blit(waypointMarker, -8, -8, 16, 16, 0, 0, 16, 16, 16, 16);
 		if (!name.isEmpty())
-			drawCenteredStr(graphics, font, name, 0, 8, ping.color(), true);
+			RenderUtils.drawCenteredStr(graphics, font, name, 0, 8, ping.color(), true);
 		stack.popPose();
 	}
 
@@ -773,25 +528,6 @@ public class CompassClient implements ClientModInitializer
 			// 0.996194698 = cosine of 5 degrees
 			return viewVec.dot(pingVec) >= 0.996194698;
 		});
-	}
-
-	private void fillGradientHorizontal(GuiGraphics graphics, int x1, int y1, int x2, int y2, int color1, int color2)
-	{
-		var vertexConsumer = graphics.bufferSource().getBuffer(RenderType.gui());
-		var z = 0;
-		var a1 = (float) FastColor.ARGB32.alpha(color1) / 255.0F;
-		var r1 = (float) FastColor.ARGB32.red(color1) / 255.0F;
-		var g1 = (float) FastColor.ARGB32.green(color1) / 255.0F;
-		var b1 = (float) FastColor.ARGB32.blue(color1) / 255.0F;
-		var a2 = (float) FastColor.ARGB32.alpha(color2) / 255.0F;
-		var r2 = (float) FastColor.ARGB32.red(color2) / 255.0F;
-		var g2 = (float) FastColor.ARGB32.green(color2) / 255.0F;
-		var b2 = (float) FastColor.ARGB32.blue(color2) / 255.0F;
-		var matrix4f = graphics.pose().last().pose();
-		vertexConsumer.vertex(matrix4f, (float) x1, (float) y1, (float) z).color(r1, g1, b1, a1).endVertex();
-		vertexConsumer.vertex(matrix4f, (float) x1, (float) y2, (float) z).color(r1, g1, b1, a1).endVertex();
-		vertexConsumer.vertex(matrix4f, (float) x2, (float) y2, (float) z).color(r2, g2, b2, a2).endVertex();
-		vertexConsumer.vertex(matrix4f, (float) x2, (float) y1, (float) z).color(r2, g2, b2, a2).endVertex();
 	}
 
 	private String toCompassDir(int the15)
@@ -811,16 +547,4 @@ public class CompassClient implements ClientModInitializer
 		};
 	}
 
-	private void drawCenteredStr(GuiGraphics graphics, Font font, String str, int x, int y, int color, boolean drawBackground)
-	{
-		var width = font.width(str);
-		var height = font.lineHeight;
-		if (drawBackground)
-		{
-			fillGradientHorizontal(graphics, x - width / 2 - 4, y - 1, x - width / 2, y + height, 0x00707070, 0x40707070);
-			fillGradientHorizontal(graphics, x + width / 2, y - 1, x + width / 2 + 4, y + height, 0x40707070, 0x00707070);
-			graphics.fill(x - width / 2, y - 1, x + width / 2, y + height, 0x40707070);
-		}
-		graphics.drawString(font, str, x - width / 2, y, color, false);
-	}
 }

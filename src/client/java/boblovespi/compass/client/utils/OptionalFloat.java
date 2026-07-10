@@ -1,4 +1,4 @@
-package boblovespi.compass.client;
+package boblovespi.compass.client.utils;
 
 public class OptionalFloat
 {

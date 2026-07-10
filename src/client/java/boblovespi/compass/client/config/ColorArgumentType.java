@@ -1,5 +1,6 @@
-package boblovespi.compass.client;
+package boblovespi.compass.client.config;
 
+import boblovespi.compass.client.utils.Utils;
 import com.mojang.brigadier.LiteralMessage;
 import com.mojang.brigadier.StringReader;
 import com.mojang.brigadier.arguments.ArgumentType;

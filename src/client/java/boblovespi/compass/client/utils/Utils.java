@@ -1,4 +1,4 @@
-package boblovespi.compass.client;
+package boblovespi.compass.client.utils;
 
 
 import java.util.OptionalInt;

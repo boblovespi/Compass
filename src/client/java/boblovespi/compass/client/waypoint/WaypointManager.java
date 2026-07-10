@@ -1,6 +1,7 @@
-package boblovespi.compass.client;
+package boblovespi.compass.client.waypoint;
 
 import boblovespi.compass.Compass;
+import boblovespi.compass.client.utils.Utils;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;

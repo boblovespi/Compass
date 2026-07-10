@@ -1,11 +1,12 @@
 package boblovespi.compass.client;
 
+import boblovespi.compass.client.config.Config;
+import boblovespi.compass.client.config.DisplayMode;
+import boblovespi.compass.client.config.SideDisplay;
+import boblovespi.compass.client.config.WaypointMode;
 import com.terraformersmc.modmenu.api.ConfigScreenFactory;
 import com.terraformersmc.modmenu.api.ModMenuApi;
-import dev.isxander.yacl3.api.ConfigCategory;
-import dev.isxander.yacl3.api.Option;
-import dev.isxander.yacl3.api.OptionDescription;
-import dev.isxander.yacl3.api.YetAnotherConfigLib;
+import dev.isxander.yacl3.api.*;
 import dev.isxander.yacl3.api.controller.*;
 import net.minecraft.network.chat.Component;
 
@@ -19,6 +20,20 @@ public class ModMenuHandler implements ModMenuApi
 		return EnumControllerBuilder.create(o)
 									.enumClass(WaypointMode.class)
 									.formatValue(f -> Component.translatable("bob-compass.config.waypoint_mode." + f.name().toLowerCase(Locale.ROOT)));
+	}
+
+	private static ControllerBuilder<DisplayMode> createDisplayModeController(Option<DisplayMode> o)
+	{
+		return EnumControllerBuilder.create(o)
+									.enumClass(DisplayMode.class)
+									.formatValue(f -> Component.translatable("bob-compass.config.display_mode." + f.name().toLowerCase(Locale.ROOT)));
+	}
+
+	private static ControllerBuilder<SideDisplay> createSideDisplayController(Option<SideDisplay> option)
+	{
+		return EnumControllerBuilder.create(option)
+									.enumClass(SideDisplay.class)
+									.formatValue(f -> Component.translatable("bob-compass.config.side_display." + f.name().toLowerCase(Locale.ROOT)));
 	}
 
 	@Override
@@ -35,16 +50,17 @@ public class ModMenuHandler implements ModMenuApi
 							ConfigCategory
 									.createBuilder()
 									.name(Component.translatable("bob-compass.config.name"))
+									.group(OptionGroup.createBuilder().name(Component.translatable("bob-compass.config.compass_bar"))
 									.option(
 											Option
-											.<Boolean>createBuilder()
+											.<DisplayMode>createBuilder()
 											.name(Component.translatable("bob-compass.config.require_compass.name"))
 											.description(
 													OptionDescription.of(Component.translatable("bob-compass.config.require_compass.tooltip"))
 														)
 											.binding(defaults.requireCompassForCompassBar, () -> inst.requireCompassForCompassBar,
 													b -> inst.requireCompassForCompassBar = b)
-											.controller(o -> BooleanControllerBuilder.create(o).yesNoFormatter())
+											.controller(ModMenuHandler::createDisplayModeController)
 											.build()
 										   )
 									.option(
@@ -73,6 +89,55 @@ public class ModMenuHandler implements ModMenuApi
 										   )
 									.option(
 											Option
+											.<SideDisplay>createBuilder()
+											.name(Component.translatable("bob-compass.config.left_side_display.name"))
+											.description(
+													OptionDescription.of(
+															Component.translatable("bob-compass.config.left_side_display.tooltip")))
+											.binding(defaults.leftSideDisplay, () -> inst.leftSideDisplay,
+													b -> inst.leftSideDisplay = b)
+											.controller(ModMenuHandler::createSideDisplayController)
+											.build()
+										   )
+									.option(
+											Option
+											.<SideDisplay>createBuilder()
+											.name(Component.translatable("bob-compass.config.right_side_display.name"))
+											.description(
+													OptionDescription.of(
+															Component.translatable("bob-compass.config.right_side_display.tooltip")))
+											.binding(defaults.rightSideDisplay, () -> inst.rightSideDisplay,
+													  b -> inst.rightSideDisplay = b)
+											.controller(ModMenuHandler::createSideDisplayController)
+											.build()
+										   )
+									.option(
+											Option
+											.<Integer>createBuilder()
+											.name(Component.translatable("bob-compass.config.y_offset.name"))
+											.description(
+											  OptionDescription.of(Component.translatable("bob-compass.config.y_offset.tooltip"))
+												  )
+											.binding(defaults.yOffset, () -> inst.yOffset,
+											  b -> inst.yOffset = b)
+											.controller(o -> IntegerFieldControllerBuilder.create(o).min(0))
+											.build()
+										   )
+									.build())
+									.group(OptionGroup.createBuilder().name(Component.translatable("bob-compass.config.waypoint_marker"))
+									.option(
+											Option
+											.<DisplayMode>createBuilder()
+											.name(Component.translatable("bob-compass.config.require_compass_marker.name"))
+											.description(
+													OptionDescription.of(
+															Component.translatable("bob-compass.config.require_compass_marker.tooltip")))
+											.binding(defaults.requireCompassForCompassBar, () -> inst.requireCompassForCompassBar,
+													b -> inst.requireCompassForCompassBar = b)
+											.controller(ModMenuHandler::createDisplayModeController)
+											.build())
+									.option(
+											Option
 											.<WaypointMode>createBuilder()
 											.name(Component.translatable("bob-compass.config.waypoint_mode.name"))
 											.description(
@@ -97,26 +162,54 @@ public class ModMenuHandler implements ModMenuApi
 										   )
 									.option(
 											Option
+											.<Boolean>createBuilder()
+											.name(Component.translatable("bob-compass.config.suppress_messages.name"))
+											.description(
+													  OptionDescription.of(Component.translatable("bob-compass.config.suppress_messages.tooltip"))
+														)
+											.binding(defaults.suppressWaypointMessages, () -> inst.suppressWaypointMessages,
+													b -> inst.sharePing = b)
+											.controller(o -> BooleanControllerBuilder.create(o).yesNoFormatter())
+											.build()
+											)
+									.option(
+											Option
 											.<Integer>createBuilder()
 											.name(Component.translatable("bob-compass.config.waypoint_render_distance.name"))
 											.description(
 													OptionDescription.of(Component.translatable("bob-compass.config.waypoint_render_distance.tooltip"))
 														)
-											.binding(defaults.waypointRenderDistance, () -> inst.waypointRenderDistance,
-													b -> inst.waypointRenderDistance = b)
+											.binding(defaults.markerRenderDistance, () -> inst.markerRenderDistance,
+													b -> inst.markerRenderDistance = b)
 											.controller(o -> IntegerFieldControllerBuilder.create(o).min(-1))
 											.build()
 										   )
+									.build())
+									.group(OptionGroup.createBuilder().name(Component.translatable("bob-compass.config.whitelist"))
 									.option(
 											Option
-											.<Integer>createBuilder()
-											.name(Component.translatable("bob-compass.config.y_offset.name"))
+											.<Boolean>createBuilder()
+											.name(Component.translatable("bob-compass.config.enable_whitelist.name"))
 											.description(
-													OptionDescription.of(Component.translatable("bob-compass.config.y_offset.tooltip"))
+													OptionDescription.of(Component.translatable("bob-compass.config.enable_whitelist.tooltip"))
 														)
-											.binding(defaults.yOffset, () -> inst.yOffset,
-													b -> inst.yOffset = b)
-											.controller(o -> IntegerFieldControllerBuilder.create(o).min(0))
+											.binding(defaults.enableWhitelist, () -> inst.enableWhitelist,
+													b -> inst.enableWhitelist = b)
+											.controller(o -> BooleanControllerBuilder.create(o).onOffFormatter())
+											.build()
+										   )
+									.build())
+									.group(
+											ListOption
+											.<String>createBuilder()
+											.name(Component.translatable("bob-compass.config.whitelist_names.name"))
+											.description(
+													OptionDescription.of(Component.translatable("bob-compass.config.whitelist_names.tooltip"))
+														)
+											.initial("")
+											.binding(defaults.whitelistNames, () -> inst.whitelistNames,
+												b -> inst.whitelistNames = b)
+											.controller(StringControllerBuilder::create)
 											.build()
 										   )
 									.build()

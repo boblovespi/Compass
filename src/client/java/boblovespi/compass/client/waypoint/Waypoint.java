@@ -1,4 +1,4 @@
-package boblovespi.compass.client;
+package boblovespi.compass.client.waypoint;
 
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
