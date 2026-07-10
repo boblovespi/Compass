@@ -83,6 +83,11 @@ jar {
 	}
 }
 
+remapJar {
+	def minecraft_version = project.minecraft_version
+	archiveClassifier = "mc$minecraft_version"
+}
+
 // configure the maven publication
 publishing {
 	publications {

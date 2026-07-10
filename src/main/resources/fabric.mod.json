@@ -8,10 +8,11 @@
 		"boblovespi"
 	],
 	"contact": {
-		"homepage": "https://fabricmc.net/",
-		"sources": "https://github.com/FabricMC/fabric-example-mod"
+		"homepage": "https://github.com/boblovespi/Compass",
+		"sources": "https://github.com/boblovespi/Compass",
+		"issues": "https://github.com/boblovespi/Compass/issues"
 	},
-	"license": "to be determined",
+	"license": "GPL-3.0-only",
 	"icon": "assets/bob-compass/icon.png",
 	"environment": "client",
 	"entrypoints": {
