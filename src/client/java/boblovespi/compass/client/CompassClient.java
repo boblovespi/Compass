@@ -36,6 +36,7 @@ import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.util.Mth;
+import net.minecraft.world.entity.projectile.ProjectileUtil;
 import net.minecraft.world.item.CompassItem;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.phys.HitResult;
@@ -50,6 +51,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
+import java.util.Optional;
 
 public class CompassClient implements ClientModInitializer
 {
@@ -219,10 +221,22 @@ public class CompassClient implements ClientModInitializer
 			if (!removePingIfExists(delta, player))
 			{
 				var raycast = player.pick(100, delta, false);
+				var loc = raycast.getType() == HitResult.Type.BLOCK ? Optional.of(raycast.getLocation()) : Optional.<Vec3>empty();
+				var dist = 100.0;
+				var view = player.getViewVector(delta);
+				var eyePos = player.getEyePosition(delta);
 				if (raycast.getType() != HitResult.Type.MISS)
+					dist = raycast.getLocation().distanceTo(eyePos);
+				var scaledView = view.scale(dist);
+				var end = eyePos.add(scaledView);
+				var aabb = player.getBoundingBox().expandTowards(scaledView).inflate(1);
+				var entityRaycast = ProjectileUtil.getEntityHitResult(player, eyePos, end, aabb, e -> !e.isSpectator() && e.isPickable(), dist * dist);
+				if (entityRaycast != null)
+					loc = Optional.of(entityRaycast.getLocation());
+
+				if (loc.isPresent())
 				{
-					var loc = raycast.getLocation();
-					waypointManager.modifyWaypointAndSave(".ping", new Waypoint(player.level().dimension(), loc, Config.HANDLER.instance().pingWaypointColor));
+					waypointManager.modifyWaypointAndSave(".ping", new Waypoint(player.level().dimension(), loc.get(), Config.HANDLER.instance().pingWaypointColor));
 					targetedWaypoint = ".ping";
 					newPing = true;
 				}

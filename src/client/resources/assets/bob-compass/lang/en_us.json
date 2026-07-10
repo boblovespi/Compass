@@ -32,7 +32,7 @@
 	"bob-compass.config.waypoint_mode.both": "Both",
 	"bob-compass.config.display_mode.always": "Always",
 	"bob-compass.config.display_mode.require_compass_in_inventory": "Require compass in inventory",
-	"bob_compass_config_display_mode.require_compass_in_hand": "Require compass in hand",
+	"bob_compass_config.display_mode.require_compass_in_hand": "Require compass in hand",
 	"bob-compass.config.share_ping.name": "Share ping",
 	"bob-compass.config.share_ping.tooltip": "Whether to automatically share pings in chat.",
 	"bob-compass.config.waypoint_render_distance.name": "Waypoint marker render distance",

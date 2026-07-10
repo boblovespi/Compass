@@ -132,8 +132,8 @@ public class ModMenuHandler implements ModMenuApi
 											.description(
 													OptionDescription.of(
 															Component.translatable("bob-compass.config.require_compass_marker.tooltip")))
-											.binding(defaults.requireCompassForCompassBar, () -> inst.requireCompassForCompassBar,
-													b -> inst.requireCompassForCompassBar = b)
+											.binding(defaults.requireCompassForWaypointMarker, () -> inst.requireCompassForWaypointMarker,
+													b -> inst.requireCompassForWaypointMarker = b)
 											.controller(ModMenuHandler::createDisplayModeController)
 											.build())
 									.option(
