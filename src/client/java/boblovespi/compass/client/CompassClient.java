@@ -130,7 +130,12 @@ public class CompassClient implements ClientModInitializer
 				var waypoint = waypointManager.getWaypoint(".ping");
 				var myName = minecraft.getUser().getName();
 				if (waypoint != null && Config.HANDLER.instance().sharePing)
-					minecraft.player.connection.sendChat(waypoint.formatted(".ping" + myName));
+				{
+					if (Config.HANDLER.instance().sharePingCommand.isEmpty())
+						minecraft.player.connection.sendChat(waypoint.formatted(".ping" + myName));
+					else
+						minecraft.player.connection.sendCommand(Config.HANDLER.instance().sharePingCommand + " " + waypoint.formatted(".ping" + myName));
+				}
 				assert minecraft.level != null;
 				minecraft.level.playSound(minecraft.player, minecraft.player, SoundEvents.ARROW_HIT_PLAYER, SoundSource.PLAYERS, 1, 1);
 			}

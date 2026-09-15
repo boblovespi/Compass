@@ -37,6 +37,8 @@
 	"bob-compass.config.display_mode.require_compass_in_hand": "Require compass in hand",
 	"bob-compass.config.share_ping.name": "Share ping",
 	"bob-compass.config.share_ping.tooltip": "Whether to automatically share pings in chat.",
+	"bob-compass.config.share_ping_command.name": "Share ping command",
+	"bob-compass.config.share_ping_command.tooltip": "The command to use to share pings with. If empty, defaults to sending a regular chat message.",
 	"bob-compass.config.waypoint_render_distance.name": "Waypoint marker render distance",
 	"bob-compass.config.waypoint_render_distance.tooltip": "How far to render the waypoint marker. Set to -1 to render arbitrarily far.",
 	"commands.bob-compass.copy": "Click to copy",

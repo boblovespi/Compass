@@ -162,6 +162,18 @@ public class ModMenuHandler implements ModMenuApi
 										   )
 									.option(
 											Option
+											.<String>createBuilder()
+											.name(Component.translatable("bob-compass.config.share_ping_command.name"))
+											.description(
+													OptionDescription.of(Component.translatable("bob-compass.config.share_ping_command.tooltip"))
+														)
+											.binding(defaults.sharePingCommand, () -> inst.sharePingCommand,
+													b -> inst.sharePingCommand = b)
+											.controller(StringControllerBuilder::create)
+											.build()
+										   )
+									.option(
+											Option
 											.<Boolean>createBuilder()
 											.name(Component.translatable("bob-compass.config.suppress_messages.name"))
 											.description(

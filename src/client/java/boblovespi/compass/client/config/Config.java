@@ -42,6 +42,8 @@ public class Config
 	@SerialEntry
 	public boolean sharePing = false;
 	@SerialEntry
+	public String sharePingCommand = "";
+	@SerialEntry
 	public boolean suppressWaypointMessages = false;
 	@SerialEntry
 	public int markerRenderDistance = 200;
