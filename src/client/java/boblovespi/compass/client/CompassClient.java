@@ -67,8 +67,12 @@ public class CompassClient implements ClientModInitializer
 
 	private final KeyMapping toggleWaypointKeybind = KeyBindingHelper.registerKeyBinding(
 			new KeyMapping("key.bob-compass.toggle_waypoint", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_J, "key.bob-compass.category"));
+	private final KeyMapping clearWaypointsKeybind = KeyBindingHelper.registerKeyBinding(
+			new KeyMapping("key.bob-compass.clear_waypoints", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_UNKNOWN, "key.bob-compass.category"));
 	private final KeyMapping pingKeybind = KeyBindingHelper.registerKeyBinding(
 			new KeyMapping("key.bob-compass.add_waypoint", InputConstants.Type.MOUSE, GLFW.GLFW_MOUSE_BUTTON_MIDDLE, "key.bob-compass.category"));
+	private final KeyMapping togglePingKeybind = KeyBindingHelper.registerKeyBinding(
+			new KeyMapping("key.bob-compass.toggle_ping", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_UNKNOWN, "key.bob-compass.category"));
 
 	// private RenderType WAYPOINT_RENDER = RenderType.create("waypoint_render", DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS, 786432, RenderType.CompositeState.builder().setShaderState(RENDERTYPE_GUI_SHADER).setTransparencyState(TRANSLUCENT_TRANSPARENCY).setDepthTestState(LEQUAL_DEPTH_TEST).createCompositeState(false));
 
@@ -100,7 +104,23 @@ public class CompassClient implements ClientModInitializer
 	{
 		while (toggleWaypointKeybind.consumeClick())
 		{
-			targetedWaypoint = waypointManager.nextWaypoint(targetedWaypoint);
+			if (minecraft.player != null)
+				targetedWaypoint = waypointManager.nextWaypoint(targetedWaypoint, minecraft.player.level().dimension().location());
+		}
+		var oldSharePing = Config.HANDLER.instance().sharePing;
+		while (togglePingKeybind.consumeClick())
+		{
+			Config.HANDLER.instance().sharePing = !Config.HANDLER.instance().sharePing;
+		}
+		if (Config.HANDLER.instance().sharePing != oldSharePing)
+			Config.HANDLER.save();
+		while (clearWaypointsKeybind.consumeClick())
+		{
+			if (minecraft.player != null)
+			{
+				var dim = minecraft.player.level().dimension();
+				waypointManager.removeIf((s, w) -> w.level().equals(dim));
+			}
 		}
 		if (newPing)
 		{
@@ -196,7 +216,12 @@ public class CompassClient implements ClientModInitializer
 				var waypoint = new Waypoint(ResourceKey.create(Registries.DIMENSION, location), pos, color.getAsInt());
 				waypointManager.modifyWaypointAndSave(name, waypoint);
 				if (name.startsWith(".ping") && minecraft.level != null)
-					minecraft.level.playSound(minecraft.player, waypoint.pos().x, waypoint.pos().y, waypoint.pos().z, SoundEvents.ARROW_HIT_PLAYER, SoundSource.PLAYERS, 1, 1);
+				{
+					var soundPos = minecraft.player.position().distanceToSqr(waypoint.pos()) < 1
+										   ? waypoint.pos()
+										   : minecraft.player.position().add(waypoint.pos().subtract(minecraft.player.position()).normalize());
+					minecraft.level.playSound(minecraft.player, soundPos.x, soundPos.y, soundPos.z, SoundEvents.ARROW_HIT_PLAYER, SoundSource.PLAYERS, 1, 1);
+				}
 				return true;
 			}
 		}

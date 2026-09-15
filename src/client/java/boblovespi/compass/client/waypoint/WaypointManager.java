@@ -142,9 +142,16 @@ public class WaypointManager
 		}
 	}
 
-	public String nextWaypoint(String currentWaypoint)
+	public String nextWaypoint(String currentWaypoint, ResourceLocation currentDimension)
 	{
-		return waypoints.keySet().stream().dropWhile(s -> !s.equals(currentWaypoint)).skip(1).findFirst().or(() -> waypoints.keySet().stream().findFirst()).orElse("");
+		return waypoints.keySet()
+						.stream()
+						.filter(s -> waypoints.get(s).level().location().equals(currentDimension))
+						.dropWhile(s -> !s.equals(currentWaypoint))
+						.skip(1)
+						.findFirst()
+						.or(() -> waypoints.keySet().stream().filter(s -> waypoints.get(s).level().location().equals(currentDimension)).findFirst())
+						.orElse("");
 	}
 
 	public void forEach(BiConsumer<String, Waypoint> f)
